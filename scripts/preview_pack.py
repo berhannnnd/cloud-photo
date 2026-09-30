@@ -280,9 +280,9 @@ def main():
                    help="zero-based contact-sheet offset for the next bounded widget (default: 0)")
     p.add_argument("--max-items", type=int, default=6)
     p.add_argument("--max-total-bytes", type=int, default=192 * 1024,
-                   help="soft ceiling for serialized image data URLs (default: 192 KiB)")
+                   help="hard ceiling for serialized image data URLs (default: 192 KiB)")
     p.add_argument("--max-widget-bytes", type=int, default=256 * 1024,
-                   help="soft ceiling for complete UTF-8 widget_code (default: 256 KiB)")
+                   help="hard ceiling for complete UTF-8 widget_code (default: 256 KiB)")
     p.set_defaults(func=build_widget)
     args = parser.parse_args()
     try:
