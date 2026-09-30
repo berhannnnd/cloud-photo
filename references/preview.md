@@ -22,6 +22,10 @@
 
 同样不能把 `localhost`、`127.0.0.1` 或 workspace 本地 HTTP 服务地址写进 widget。它们只在 Agent 进程所在主机可见，客户端无法加载。
 
+本地 HTTP 服务可以短暂用于生成或调试，但不能把它的 `localhost`/`127.0.0.1` 地址放进 `show_widget`。图片必须先落盘到当前 workspace 的 `.cloud-photo/`，再以内嵌且有大小上限的 `data:image/...` 放入自包含可视化，或由图片读取工具返回原生图片附件；服务停止、端口失效或临时目录清理不能让已经交付的预览失效。`deliver_files` 只能提供持久化文件卡片，不能代替正文中的图片附件。
+
+推荐用 `scripts/preview_pack.py widget` 把 `preview-index.json` 中的持久化小图打包为自包含 HTML fragment，再把 fragment 原样交给 `show_widget`。该命令按总字节数和组数截断，超出部分分批生成；它不会启动服务，也不会在 fragment 中留下工作区路径。
+
 ### `show_widget`：即时状态和计划预览
 
 调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：

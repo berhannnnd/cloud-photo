@@ -80,6 +80,7 @@ python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .
 python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
 python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
 python scripts/preview_pack.py build --items .cloud-photo/organize/candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/organize/preview
+python scripts/preview_pack.py widget --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/widget.html
 python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl

@@ -7,7 +7,9 @@ blob. The host can attach each sheet or pass its path to the preview renderer.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
+import mimetypes
 import pathlib
 import sys
 
@@ -56,6 +58,78 @@ def save_small(sheet, path: pathlib.Path, max_bytes: int, quality: int):
         current -= 5
     sheet.save(path, format="JPEG", quality=25, optimize=True)
     return 25
+
+
+def read_preview_index(path: pathlib.Path) -> dict:
+    if not path.exists():
+        fail(f"preview index not found: {path}")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or not isinstance(value.get("sheets"), list):
+        fail("preview index must contain a sheets array")
+    return value
+
+
+def image_data_url(path: pathlib.Path) -> str:
+    if not path.exists() or path.stat().st_size == 0:
+        fail(f"preview image not found or empty: {path}")
+    mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
+    if mime not in {"image/jpeg", "image/png", "image/webp", "image/gif"}:
+        fail(f"unsupported preview image type: {path}")
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+def build_widget(args):
+    """Write a self-contained visualize/show_widget HTML fragment.
+
+    The fragment embeds bounded preview sheets as data URLs. It never points
+    at workspace paths, localhost, or a temporary HTTP service, so it remains
+    renderable after the source process exits.
+    """
+    index = read_preview_index(pathlib.Path(args.preview_index))
+    output = pathlib.Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cards = []
+    used = 0
+    skipped = 0
+    for number, sheet in enumerate(index["sheets"], start=1):
+        if len(cards) >= args.max_sheets:
+            skipped += 1
+            continue
+        raw_path = sheet.get("path")
+        if not raw_path:
+            skipped += 1
+            continue
+        path = pathlib.Path(raw_path)
+        size = path.stat().st_size if path.exists() else 0
+        if not size or used + size > args.max_total_bytes:
+            skipped += 1
+            continue
+        cards.append(
+            '<figure><img loading="lazy" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
+            % (image_data_url(path), number, number, int(sheet.get("count") or 0))
+        )
+        used += size
+    if not cards:
+        fail("no preview sheets fit the widget size budget")
+    note = ""
+    if skipped:
+        note = '<p class="note">已展示 %d 组预览；另有 %d 组因可视化大小上限未嵌入，请按批次继续展示。</p>' % (len(cards), skipped)
+    fragment = """<style>
+#cloud-photo-preview{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--nexus-text,#222)}
+#cloud-photo-preview .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+#cloud-photo-preview figure{margin:0;border:1px solid var(--nexus-border,#ddd);border-radius:8px;overflow:hidden;background:var(--nexus-surface,#fff)}
+#cloud-photo-preview img{display:block;width:100%%;height:auto;max-height:360px;object-fit:contain;background:var(--nexus-background,#f7f7f7)}
+#cloud-photo-preview figcaption{padding:5px 7px;color:var(--nexus-muted,#666)}
+#cloud-photo-preview .note{margin:0 0 8px;color:var(--nexus-muted,#666)}
+</style>
+<section id="cloud-photo-preview" aria-label="照片预览">
+%s
+<div class="grid">%s</div>
+</section>
+""" % (note, "".join(cards))
+    output.write_text(fragment, encoding="utf-8")
+    print(json.dumps({"output": str(output), "sheets": len(cards), "skipped": skipped, "bytes": output.stat().st_size}, ensure_ascii=False))
 
 
 def build(args):
@@ -121,6 +195,12 @@ def main():
     p.add_argument("--max-bytes", type=int, default=80000)
     p.add_argument("--quality", type=int, default=55)
     p.set_defaults(func=build)
+    p = sub.add_parser("widget", help="Create a self-contained visualize/show_widget fragment")
+    p.add_argument("--preview-index", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--max-sheets", type=int, default=6)
+    p.add_argument("--max-total-bytes", type=int, default=600000)
+    p.set_defaults(func=build_widget)
     args = parser.parse_args()
     try:
         args.func(args)
