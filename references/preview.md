@@ -1,6 +1,6 @@
 # 对话内预览
 
-图片优先规则见 [image-first-preview.md](image-first-preview.md)。本文件中的所有状态卡和交付文件都不能替代实际图片展示。
+图片优先规则见 [image-first-preview.md](image-first-preview.md)。用户要求查看图片时必须展示原图；本文件中的所有状态卡、文件名卡片和交付文件都不能替代实际图片展示。
 
 整理结果的完整展示规范见 [evidence-pack.md](evidence-pack.md)。
 
@@ -10,7 +10,9 @@
 
 ### 图片网格 / contact sheet：第一视觉内容
 
-检索或整理结果先展示实际缩略图网格或 contact sheet。每格以图片为主，文件名只作短 caption；路径、标签和状态放到展开详情或图片下方。没有实际图片时不能用文件名 chip 代替，必须先补取缩略图或报告预览失败。
+检索或整理结果先展示实际原图；候选很多时按批次展示。contact sheet 只做总览。每格以图片为主，文件名只作短 caption；路径、标签和状态放到展开详情或图片下方。没有实际图片时不能用文件名 chip 代替，必须先补取原图或报告预览失败。
+
+预览图片必须先物化到 workspace 的 `.cloud-photo/` 持久目录并做存在性检查；只存在于 `/tmp` 的文件不能直接作为预览依赖。
 
 ### `show_widget`：即时状态和计划预览
 
