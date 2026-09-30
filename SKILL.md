@@ -52,9 +52,24 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
 
+## 可执行索引流水线
+
+索引模式优先使用 [index-runner.md](references/index-runner.md) 的预置 runner，不要临时编写全量扫描脚本：
+
+1. `cm-cloud-manage` 输出云盘文件清单 JSONL。
+2. `index_runner.py ingest` 过滤非图片并生成 pending manifest。
+3. `index_runner.py batch` 生成有界批次；宿主按批次取得图片或缩略图。
+4. 多模态模型返回三类标签 JSONL，`index_runner.py apply` 合并并更新状态。
+5. `report` 生成进度，供 `show_widget` 实时展示；每批都可以独立上传和恢复。
+
+云盘登录、清单读取和图片取得仍由 `cm-cloud-manage` 完成；runner 不读取凭据，也不直接请求云盘 API。
+
 ## 配套工具
 
 ```text
+python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .cloud-photo
+python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
+python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
