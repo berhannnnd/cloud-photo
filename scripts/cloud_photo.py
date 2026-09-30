@@ -58,6 +58,82 @@ def write_manifest(path: pathlib.Path, records: list[dict]) -> None:
 def terms(query: str) -> list[str]: return [p for p in re.findall(r"[\w\u3400-\u9fff]+", query.casefold()) if p]
 def searchable(record: dict) -> str: return json.dumps(record, ensure_ascii=False, sort_keys=True).casefold()
 
+def read_json_records(path: pathlib.Path) -> list[dict]:
+    """Read JSON/JSONL produced by cm-cloud without assuming one envelope."""
+    if not path.exists(): fail(f"input not found: {path}")
+    raw = path.read_text(encoding="utf-8")
+    if not raw.strip(): return []
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        # cm-cloud may prefix a JSON receipt with auth/diagnostic lines. Parse
+        # the first complete JSON value before falling back to JSONL.
+        value = None
+        for marker in ("{", "["):
+            start = raw.find(marker)
+            if start < 0: continue
+            try:
+                value, _ = json.JSONDecoder().raw_decode(raw[start:])
+                break
+            except json.JSONDecodeError:
+                continue
+        if value is not None:
+            raw = json.dumps(value, ensure_ascii=False)
+        else:
+            rows = []
+            for number, line in enumerate(raw.splitlines(), 1):
+                if not line.strip(): continue
+                try: item = json.loads(line)
+                except json.JSONDecodeError as exc: fail(f"{path}:{number}: invalid JSON: {exc.msg}")
+                rows.append(item)
+            return rows
+    if isinstance(value, list): return value
+    if isinstance(value, dict):
+        data = value.get("data")
+        if isinstance(data, dict) and isinstance(data.get("items"), list): return data["items"]
+        for key in ("items", "results", "candidates", "assets"):
+            if isinstance(value.get(key), list): return value[key]
+        return [value]
+    fail(f"{path}: expected JSON object, array, or JSONL")
+
+def cmd_resolve_refs(args):
+    """Resolve current cloud refs immediately before a write operation.
+
+    A name-only match is accepted only when unique. Ambiguous/missing records
+    remain explicit so callers cannot accidentally copy the wrong photo.
+    """
+    listing = [item for item in read_json_records(pathlib.Path(args.listing)) if isinstance(item, dict)]
+    requested = [item for item in read_json_records(pathlib.Path(args.items)) if isinstance(item, dict)]
+    by_path: dict[str, list[dict]] = {}; by_name: dict[str, list[dict]] = {}
+    for item in listing:
+        ref = item.get("fileRef") or item.get("file_id") or item.get("id")
+        if not ref: continue
+        name = str(item.get("name") or item.get("file_name") or "")
+        path = str(item.get("path") or item.get("namePath") or "")
+        if path: by_path.setdefault(path, []).append(item)
+        if name: by_name.setdefault(name, []).append(item)
+    resolved = []; counts = {"resolved": 0, "ambiguous": 0, "missing": 0}
+    for item in requested:
+        wanted_path = str(item.get("path") or (item.get("source_ref") or {}).get("path") or "")
+        wanted_name = str(item.get("name") or (item.get("file_metadata") or {}).get("name") or pathlib.Path(wanted_path).name)
+        matches = by_path.get(wanted_path, []) if wanted_path else []
+        if not matches: matches = by_name.get(wanted_name, []) if wanted_name else []
+        if len(matches) == 1:
+            current = matches[0]
+            resolved.append({"asset_id": item.get("asset_id"), "status": "resolved", "name": current.get("name"), "path": current.get("path") or current.get("namePath") or wanted_path, "fileRef": current.get("fileRef") or current.get("file_id") or current.get("id")})
+            counts["resolved"] += 1
+        elif len(matches) > 1:
+            resolved.append({"asset_id": item.get("asset_id"), "status": "ambiguous", "name": wanted_name, "path": wanted_path, "candidates": [m.get("fileRef") or m.get("file_id") or m.get("id") for m in matches]})
+            counts["ambiguous"] += 1
+        else:
+            resolved.append({"asset_id": item.get("asset_id"), "status": "missing", "name": wanted_name, "path": wanted_path})
+            counts["missing"] += 1
+    output = {"schema_version": "cloud-photo/ref-resolution/v1", "counts": counts, "items": resolved}
+    if args.output:
+        target = pathlib.Path(args.output); target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(output, ensure_ascii=False, indent=2))
+
 def cmd_init(args):
     path = pathlib.Path(args.output)
     if path.exists() and not args.force: fail(f"refusing to overwrite {path}; use --force")
@@ -123,9 +199,14 @@ def main():
     p = sub.add_parser("validate"); p.add_argument("manifest"); p.set_defaults(func=cmd_validate)
     p = sub.add_parser("merge"); p.add_argument("--base", required=True); p.add_argument("--delta", required=True); p.add_argument("--output", required=True); p.set_defaults(func=cmd_merge)
     p = sub.add_parser("mode-detect"); p.add_argument("--text", required=True); p.set_defaults(func=cmd_mode_detect)
-    p = sub.add_parser("plan"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--target", required=True); p.add_argument("--limit", type=int, default=20); p.set_defaults(func=cmd_plan)
+    p = sub.add_parser("plan"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--target", required=True); p.add_argument("--limit", type=int, default=20); p.add_argument("--format", choices=("json",), default="json", help="accepted for CLI compatibility"); p.set_defaults(func=cmd_plan)
     p = sub.add_parser("dependency-status"); p.add_argument("--path", required=True); p.add_argument("--expected"); p.set_defaults(func=cmd_dependency_status)
-    p = sub.add_parser("search"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--limit", type=int, default=20); p.set_defaults(func=cmd_search)
+    p = sub.add_parser("resolve-refs", help="resolve fresh cm-cloud fileRefs before a write")
+    p.add_argument("--listing", required=True, help="fresh cm-cloud list JSON/JSONL")
+    p.add_argument("--items", required=True, help="candidate items JSON/JSONL")
+    p.add_argument("--output")
+    p.set_defaults(func=cmd_resolve_refs)
+    p = sub.add_parser("search"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--limit", type=int, default=20); p.add_argument("--format", choices=("json",), default="json", help="accepted for CLI compatibility"); p.set_defaults(func=cmd_search)
     args = parser.parse_args()
     try: args.func(args)
     except ValueError as exc: print(f"error: {exc}", file=sys.stderr); return 2

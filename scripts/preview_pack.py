@@ -124,14 +124,18 @@ def build_widget(args):
             continue
         path = resolve_path(raw_path, base_dir=index_path.parent)
         size = path.stat().st_size if path.exists() else 0
-        if not size or used + size > args.max_total_bytes:
+        # The fragment embeds base64, which expands binary data by roughly
+        # 4/3. Budget the encoded payload rather than only the JPEG bytes so a
+        # configured widget ceiling remains true after serialization.
+        encoded_size = ((size + 2) // 3) * 4 + 128 if size else 0
+        if not size or used + encoded_size > args.max_total_bytes:
             skipped += 1
             continue
         cards.append(
             '<figure><img loading="eager" decoding="async" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
             % (image_data_url(path), number, number, int(sheet.get("count") or 0))
         )
-        used += size
+        used += encoded_size
     if not cards:
         fail("no preview sheets fit the widget size budget")
     note = ""

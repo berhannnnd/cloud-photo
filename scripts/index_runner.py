@@ -173,7 +173,8 @@ def cmd_ingest(args):
         rows.append(fresh)
     rows.sort(key=lambda row: row["asset_id"])
     atomic_jsonl(output / "manifest.jsonl", rows)
-    checkpoint = {"schema_version": SCHEMA, "scan_id": args.scan_id, "updated_at": now(), "scope": args.scope, "total": len(rows), "pending": len(rows), "completed": 0, "partial": 0, "error": 0, "skipped": skipped}
+    checkpoint = update_checkpoint(output / "manifest.jsonl")
+    checkpoint.update({"scan_id": args.scan_id, "scope": args.scope, "skipped": skipped})
     atomic_json(output / "checkpoint.json", checkpoint)
     print(json.dumps({"manifest": str(output / "manifest.jsonl"), "records": len(rows), "skipped": skipped, "scan_id": args.scan_id}, ensure_ascii=False))
 
@@ -294,11 +295,14 @@ def cmd_apply(args):
         if state.get("status") in STATUSES: row["index_state"]["status"] = state["status"]
         elif "thumbnail_tags" in label or "vision_tags" in label:
             # A label response containing one stage is recoverable progress;
-            # mark complete only when both derived groups are present.
-            row["index_state"]["status"] = (
-                "complete" if {"thumbnail_tags", "vision_tags"}.issubset(label)
-                else "partial"
+            # an earlier stage may already be present in the manifest.
+            has_thumbnail = bool(row.get("thumbnail_tags")) and any(
+                value not in (None, "", []) for value in row["thumbnail_tags"].values()
             )
+            has_vision = bool(row.get("vision_tags")) and any(
+                value not in (None, "", []) for value in row["vision_tags"].values()
+            )
+            row["index_state"]["status"] = "complete" if has_thumbnail and has_vision else "partial"
         row["index_state"]["updated_at"] = now(); applied += 1
     atomic_jsonl(manifest_path, sorted(by_id.values(), key=lambda r: r["asset_id"]))
     update_checkpoint(manifest_path, batch_id=getattr(args, "batch_id", None), applied_ids=[label.get("asset_id") for label in labels if label.get("asset_id") in by_id])

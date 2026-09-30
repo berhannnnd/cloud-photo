@@ -9,6 +9,12 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 无论任何场景，用户要求查找、分类、整理或预览照片时，**必须展示分类后的实际图片**。图片展示是结果的必要条件和最高优先级：即使时间、payload、组件能力或候选数量受限，也要先按类别分批展示图片；文件名、路径、标签、数量、统计、操作计划和报告都可以省略、延后或作为辅助信息，但不能用这些文字内容替代图片。没有实际图片展示就不能宣称任务结果已完成。
 
+## visualize 的边界（必须遵守）
+
+`visualize`/`show_widget` 是 Nexus 对话里的 HTML 渲染器，不是图片文件服务器，也不会替 Agent 启动或托管 `http.server`。调用成功只表示 HTML fragment 被接收，不能证明 iframe 中的每一张图片已经加载；不能用 `accepted: true` 作为像素渲染验收。
+
+因此 widget 只能使用自包含的 `data:image/...`、本轮实际提供的原生图片附件或平台明确支持的稳定资源句柄。禁止把 `localhost`、`127.0.0.1`、`file://`、workspace 绝对路径或 `/tmp` 路径写入 `<img src>`，也不要通过固定端口和 `pkill` 管理预览服务。预览文件先落到 workspace 的 `.cloud-photo/`，由 `preview_pack.py` 生成受大小约束的自包含片段；原图查看优先走原生图片附件。若无法取得可渲染的图片资源，必须报告“图片预览未完成”，不能用文件名、路径或成功提示代替。
+
 这是一个顶层 Skill，安装后同时提供三个协作模块：
 
 1. **cloud-access**：发现云盘文件、读取元数据、取得缩略图或可访问的图片引用，并把结果写入工作区索引目录。
@@ -86,6 +92,7 @@ python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py search .cloud-photo/manifest.jsonl --query "猫 户外"
+python scripts/cloud_photo.py resolve-refs --listing fresh-list.json --items candidates.json --output ref-resolution.json
 python scripts/cloud_photo.py plan .cloud-photo/manifest.jsonl --query "猫" --target "猫相册"
 python scripts/cloud_photo.py merge --base old.jsonl --delta batch.jsonl --output manifest.jsonl
 ```

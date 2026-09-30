@@ -36,3 +36,15 @@
 - 一批复制可以提交多个文件引用。不要在 Skill 中臆造批量上限；实际参数和限制以当前 `cm-cloud-manage` schema/help 为准。批量失败时按逐项结果更新整理报告，未知状态不得自动重放。
 - 复制前先展示图片优先的整理预览，包含候选图片、目标路径和“复制后原图保留”；用户确认后再走计划 → 确认 → 执行。
 - 相册整理优先调用 album 能力把图片加入相簿，不把相册操作伪装成文件复制；相簿与文件夹的结果分别对账。
+## 写入前重新解析引用
+
+`fileRef`、分页游标和下载回执中的引用不能作为跨阶段的长期句柄。执行复制、移动或归档前，必须重新列出源目录（包含相关子目录），把候选的规范路径和文件名交给 `scripts/cloud_photo.py resolve-refs`，只使用唯一解析结果中的当前 `fileRef`。`ambiguous` 和 `missing` 必须停在待处理状态，不能按文件名猜测目标。
+
+```bash
+python scripts/cloud_photo.py resolve-refs \
+  --listing .cloud-photo/reconcile/source-list.json \
+  --items .cloud-photo/organize/candidates.json \
+  --output .cloud-photo/organize/ref-resolution.json
+```
+
+解析结果只负责确定性匹配，不调用云盘 API；云盘 Skill 仍负责分页列举、确认令牌和复制执行。写入后必须重新列目标目录，以实际目录内容对账成功、失败和待补项。
