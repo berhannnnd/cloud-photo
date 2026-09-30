@@ -36,7 +36,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
 3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
 4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：用 `show_widget` 展示状态/计划，用 contact sheet 展示实际图片，用 `nexus.deliver_files` 交付清单和报告。
+5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：必须先用图片网格/contact sheet 展示实际图片，再用 `show_widget` 展示状态/计划，最后用 `nexus.deliver_files` 交付清单和报告。
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
@@ -44,11 +44,11 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 索引或整理完成后，必须把“做了什么”和“哪些图片对应哪些结果”展示在当前对话中：
 
-1. 用普通文字给出真实数量和状态。
-2. 调用 Nexus 内置 `show_widget`，展示候选照片、识别标签、原路径、目标相簿/目录和执行状态；widget 只做本地筛选/展开，不执行云盘写操作。
-3. 将实际处理的照片生成 contact sheet，作为图片附件直接展示；需要细看时再附少量原图缩略图。
-4. 用 `nexus.deliver_files` 交付整理报告、manifest 和 checkpoint。
-5. 对每张图片优先展示稳定云盘链接；没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。
+1. 先将实际处理或检索命中的照片生成 contact sheet/缩略图网格，并作为原生图片附件直接展示；图片必须出现在回复主体中，不能只生成一个文件卡片。
+2. 用普通文字给出真实数量和状态。
+3. 调用 Nexus 内置 `show_widget`，用图片 tile/grid 展示候选照片，文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在详情中；widget 只做本地筛选/展开，不执行云盘写操作。
+4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
+5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
 
