@@ -48,7 +48,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 2. 调用 Nexus 内置 `show_widget`，展示候选照片、识别标签、原路径、目标相簿/目录和执行状态；widget 只做本地筛选/展开，不执行云盘写操作。
 3. 将实际处理的照片生成 contact sheet，作为图片附件直接展示；需要细看时再附少量原图缩略图。
 4. 用 `nexus.deliver_files` 交付整理报告、manifest 和 checkpoint。
-5. 对每张图片优先展示稳定云盘链接；没有稳定链接时展示云盘路径和 `file_id`，不伪造 URL。
+5. 对每张图片优先展示稳定云盘链接；没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
 
