@@ -20,3 +20,8 @@
 ```
 
 访问模块的变更必须只影响 `packages/cloud-access/`，并保持上述输出契约不变。
+
+
+## 当前适配版本
+
+本模块固定按 `@org-vt43r0t0/cm-cloud-manage` 2.0.0 的能力边界编排。详细差异见 [cm-cloud-compatibility.md](cm-cloud-compatibility.md)：个人云可以全盘读取和下载，但文件写入只落智能体专属目录；文件层面没有移动、删除、改名，整理文件夹时只能复制，整理相簿时使用相簿 API。

@@ -1,6 +1,6 @@
 # 外部依赖
 
-`cloud-photo` 依赖 SkillHub 包 `@org-vt43r0t0/cm-cloud-manage`，只调用它公开的云盘能力，不复制源码。更新流程由宿主显式触发：
+`cloud-photo` 固定依赖 SkillHub 包 `@org-vt43r0t0/cm-cloud-manage` **2.0.0**，只调用它公开的云盘能力，不复制源码。版本能力差异和文件写入边界见 [cm-cloud-compatibility.md](cm-cloud-compatibility.md)。更新流程由宿主显式触发：
 
 1. 读取当前安装目录的 `_meta.json`，用 `dependency-status` 检查版本和格式。
 2. 需要更新时再由 SkillHub 下载新包，并在同一工作区做兼容性检查。
