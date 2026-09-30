@@ -19,7 +19,9 @@
 
 把本次实际处理的照片缩略图直接展示在对话正文中。图片是主内容，文件名只是 caption；只展示文件名列表、路径列表或生成文件卡片都不算完成预览。
 
-### 3. `show_widget` 整理卡
+### 3. `visualize` / `show_widget` 整理卡
+
+先加载 Nexus 内置 `visualize` Skill，再调用一次 `show_widget`。Nexus 会拒绝超过 256 KiB UTF-8 的 `widget_code` 或超过 192 KiB 的内嵌图片 data URL。每次整理卡只嵌入一个 contact sheet，最多 6 张照片；超出部分按批次交给后续轮次或原生图片附件，不在同一轮连续发送三个 widget。
 
 widget 展示结构化映射，不负责访问云盘：
 
@@ -68,7 +70,7 @@ contact sheet 用 Nexus 原生图片附件交付。它是“看效果”的证�
 
 1. 先展示整理前的少量照片集合或原始目录范围。
 2. 展示 contact sheet，让观看者直接看到猫、旅行、人物等视觉标签确实对应照片。
-3. 展示 `show_widget` 的“候选 → 目标 → 状态”映射。
+3. 加载 `visualize` Skill 后展示一次 `show_widget` 的“候选 → 目标 → 状态”映射。
 4. 展示一两条可回溯链接和完整报告文件。
 5. 最后说明原图是否移动：相簿整理是不移动原文件，文件夹整理是复制到专属目录。
 

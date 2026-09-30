@@ -1,6 +1,8 @@
 # 对话内预览
 
-`visualize`/`show_widget` 只负责在对话 iframe 中执行已经提交的 HTML fragment；它不启动、保活或代理本机图片服务。任何依赖 `http.server`、固定端口、`localhost` 或 `127.0.0.1` 的方案都属于已废弃的调试方案，不能进入最终回复。
+在 Nexus 中，`visualize` Skill 规定生成方式，`show_widget` 是唯一提交 HTML fragment 的工具。展示前必须加载 `visualize` Skill；不要把 `visualize` 当成另一个可绕过 `show_widget` 的图片服务。它不启动、保活或代理本机图片服务。任何依赖 `http.server`、固定端口、`localhost` 或 `127.0.0.1` 的方案都属于已废弃的调试方案，不能进入最终回复。
+
+Nexus 强制限制 `widget_code` 为 256 KiB UTF-8、内嵌图片 data URL 合计为 192 KiB。为避免图片数量变多时出现空白、截断或 iframe 高度异常，本 Skill 进一步规定每次只传一个 contact sheet、最多 6 张照片。超限由 `preview_pack.py` 按批次拆分，不能把多个批次拼成一个 widget，也不能在同一轮连续调用三个 `show_widget`。
 
 图片优先规则见 [image-first-preview.md](image-first-preview.md)。用户要求查看图片时必须展示原图；本文件中的所有状态卡、文件名卡片和交付文件都不能替代实际图片展示。
 
@@ -26,13 +28,13 @@
 
 本地 HTTP 服务可以短暂用于生成或调试，但不能把它的 `localhost`/`127.0.0.1` 地址放进 `show_widget`。图片必须先落盘到当前 workspace 的 `.cloud-photo/`，再以内嵌且有大小上限的 `data:image/...` 放入自包含可视化，或由图片读取工具返回原生图片附件；服务停止、端口失效或临时目录清理不能让已经交付的预览失效。`deliver_files` 只能提供持久化文件卡片，不能代替正文中的图片附件。
 
-推荐用 `scripts/preview_pack.py widget` 把 `preview-index.json` 中的持久化小图打包为自包含 HTML fragment，再把 fragment 原样交给 `show_widget`。该命令按总字节数和组数截断，超出部分分批生成；它不会启动服务，也不会在 fragment 中留下工作区路径。
+推荐用 `scripts/preview_pack.py widget` 把 `preview-index.json` 中的持久化小图打包为一个受载荷上限约束的自包含 HTML fragment，再把 fragment 原样交给已加载 `visualize` Skill 的 `show_widget`。该命令每次只生成一个 contact sheet（最多 6 张），按实际编码后的图片 payload 和完整 UTF-8 字节数校验；下一张 sheet 用 `--sheet-offset 1`、`2` 等继续生成，超出部分留给后续批次或原生图片附件。它不会启动服务，也不会在 fragment 中留下工作区路径。
 
 `preview-index.json` 中的相对图片路径按索引文件所在目录解析，因此从另一工作目录生成 widget 也不会丢图。内嵌图片使用 eager 加载；`show_widget` 返回 accepted 仍只代表载荷被接收，仍应通过原生图片附件或客户端可见结果确认实际渲染。
 
-### `show_widget`：即时状态和计划预览
+### `show_widget`：visualize Skill 的即时状态和计划预览
 
-调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：
+加载 `visualize` Skill 后调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：
 
 - 当前扫描阶段：发现、缩略图标签、视觉标签、上传索引
 - 已完成、partial、error 的数量
@@ -61,9 +63,9 @@
 
 1. contact sheet 或实际缩略图网格（先让用户看到图）。
 2. 一句文字总结（扫描范围和状态）。
-3. 一个 `show_widget`：进度、标签分布、图片候选和详情。
+3. 加载 `visualize` Skill 后调用一次 `show_widget`：进度、标签分布、一个批次的图片候选和详情。
 4. `nexus.deliver_files`：manifest、checkpoint、报告和完整 contact sheet。
 
 `show_widget` 的工具回执只表示已接受，不证明客户端已经渲染；文字结果仍必须给出可核对的状态和文件产物链接。
 
-如果没有实际的 `show_widget` 调用和回执，不能只根据“已生成 base64/contact sheet”声称预览完成。用户中断、payload 过大或组件调用失败时，应明确标记预览未完成并重新发起小批次渲染。
+如果没有实际的 `show_widget` 调用和回执，不能只根据“已生成 base64/contact sheet”声称预览完成。用户中断、payload 过大或组件调用失败时，应明确标记预览未完成并重新发起小批次渲染。不要手工读取或生成 `sheets_b64.txt`，也不要用三次连续 `show_widget` 代替批次控制。

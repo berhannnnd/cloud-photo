@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Build small, persistent image preview sheets for cloud-photo results.
 
-This tool deliberately writes image files instead of producing a large base64
-blob. The host can attach each sheet or pass its path to the preview renderer.
+The Nexus ``visualize`` Skill ultimately delivers a fragment through its
+``show_widget`` tool.  Keep each call bounded so one malformed or oversized
+payload cannot hide the rest of a conversation.  The generated fragment is
+self-contained (data URLs), while the source sheets remain durable files in
+``.cloud-photo`` for attachments and audit.
 """
 from __future__ import annotations
 
@@ -99,42 +102,60 @@ def image_data_url(path: pathlib.Path) -> str:
 
 
 def build_widget(args):
-    """Write a self-contained visualize/show_widget HTML fragment.
+    """Write one bounded, self-contained visualize/show_widget HTML fragment.
 
     The fragment embeds bounded preview sheets as data URLs. It never points
     at workspace paths, localhost, or a temporary HTTP service, so it remains
-    renderable after the source process exits.
+    renderable after the source process exits. Nexus rejects ``widget_code``
+    over 256 KiB UTF-8 or inline image data over 192 KiB; the limits here are
+    enforced before the fragment reaches ``show_widget``.
     """
     index = read_preview_index(pathlib.Path(args.preview_index))
     index_path = pathlib.Path(args.preview_index).resolve()
-    if args.max_sheets <= 0 or args.max_total_bytes <= 0:
-        fail("max-sheets and max-total-bytes must be positive")
+    if args.max_sheets != 1:
+        fail("one visualize call may contain exactly one contact sheet; use a new turn for the next batch")
+    if args.max_total_bytes <= 0 or args.max_widget_bytes <= 0 or args.max_items <= 0:
+        fail("max-total-bytes, max-widget-bytes and max-items must be positive")
+    if args.sheet_offset < 0:
+        fail("sheet-offset must be non-negative")
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     cards = []
+    selected_counts = []
     used = 0
     skipped = 0
-    for number, sheet in enumerate(index["sheets"], start=1):
-        if len(cards) >= args.max_sheets:
-            skipped += 1
-            continue
+    sheets = index["sheets"]
+    if args.sheet_offset >= len(sheets):
+        fail(f"sheet-offset {args.sheet_offset} is outside the preview index ({len(sheets)} sheets)")
+    selected_sheets = sheets[args.sheet_offset:args.sheet_offset + args.max_sheets]
+    skipped = max(0, len(sheets) - args.sheet_offset - len(selected_sheets))
+    for number, sheet in enumerate(selected_sheets, start=args.sheet_offset + 1):
         raw_path = sheet.get("path")
         if not raw_path:
             skipped += 1
             continue
         path = resolve_path(raw_path, base_dir=index_path.parent)
         size = path.stat().st_size if path.exists() else 0
-        # The fragment embeds base64, which expands binary data by roughly
-        # 4/3. Budget the encoded payload rather than only the JPEG bytes so a
-        # configured widget ceiling remains true after serialization.
-        encoded_size = ((size + 2) // 3) * 4 + 128 if size else 0
-        if not size or used + encoded_size > args.max_total_bytes:
+        count = int(sheet.get("count") or 0)
+        if count > args.max_items:
+            fail(
+                f"preview sheet {number} contains {count} photos; rebuild with at most {args.max_items} photos per sheet"
+            )
+        if not size:
+            skipped += 1
+            continue
+        data_url = image_data_url(path)
+        # Count the actual serialized UTF-8 payload, not the JPEG bytes. The
+        # base64 expansion and the data URL prefix are part of widget_code.
+        encoded_size = len(data_url.encode("utf-8"))
+        if used + encoded_size > args.max_total_bytes:
             skipped += 1
             continue
         cards.append(
             '<figure><img loading="eager" decoding="async" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
-            % (image_data_url(path), number, number, int(sheet.get("count") or 0))
+            % (data_url, number, number, count)
         )
+        selected_counts.append(count)
         used += encoded_size
     if not cards:
         fail("no preview sheets fit the widget size budget")
@@ -154,8 +175,25 @@ def build_widget(args):
 <div class="grid">%s</div>
 </section>
 """ % (note, "".join(cards))
+    widget_bytes = len(fragment.encode("utf-8"))
+    if widget_bytes > args.max_widget_bytes:
+        fail(
+            f"widget_code is {widget_bytes} bytes; split the preview into another turn or lower preview quality (limit {args.max_widget_bytes})"
+        )
     output.write_text(fragment, encoding="utf-8")
-    print(json.dumps({"output": str(output), "sheets": len(cards), "skipped": skipped, "bytes": output.stat().st_size}, ensure_ascii=False))
+    print(json.dumps({
+        "output": str(output),
+        "sheets": len(cards),
+        "photos": sum(selected_counts),
+        "skipped": skipped,
+        "image_payload_bytes": used,
+        "widget_bytes": widget_bytes,
+        "limits": {
+            "max_items": args.max_items,
+            "max_total_bytes": args.max_total_bytes,
+            "max_widget_bytes": args.max_widget_bytes,
+        },
+    }, ensure_ascii=False))
 
 
 def build(args):
@@ -163,6 +201,8 @@ def build(args):
         fail("Pillow is required for preview-pack; use the host image runtime")
     if args.max_bytes <= 0 or args.columns <= 0 or args.rows <= 0 or args.tile <= 0:
         fail("max-bytes, columns, rows and tile must be positive")
+    if args.columns * args.rows > 6:
+        fail("a contact sheet may contain at most 6 photos; use columns*rows <= 6")
     items_path = pathlib.Path(args.items).resolve()
     items = read_items(items_path)
     output = pathlib.Path(args.output)
@@ -223,8 +263,8 @@ def main():
     p.add_argument("--items", required=True, help="JSON array/object or JSONL of candidate records")
     p.add_argument("--thumbnail-dir", required=True)
     p.add_argument("--output", required=True)
-    p.add_argument("--columns", type=int, default=4)
-    p.add_argument("--rows", type=int, default=3)
+    p.add_argument("--columns", type=int, default=3)
+    p.add_argument("--rows", type=int, default=2)
     p.add_argument("--tile", type=int, default=160)
     p.add_argument("--caption", type=int, default=22)
     p.add_argument("--caption-chars", type=int, default=24)
@@ -232,11 +272,17 @@ def main():
     p.add_argument("--max-bytes", type=int, default=80000)
     p.add_argument("--quality", type=int, default=55)
     p.set_defaults(func=build)
-    p = sub.add_parser("widget", help="Create a self-contained visualize/show_widget fragment")
+    p = sub.add_parser("widget", help="Create one bounded visualize/show_widget fragment")
     p.add_argument("--preview-index", required=True)
     p.add_argument("--output", required=True)
-    p.add_argument("--max-sheets", type=int, default=6)
-    p.add_argument("--max-total-bytes", type=int, default=600000)
+    p.add_argument("--max-sheets", type=int, default=1)
+    p.add_argument("--sheet-offset", type=int, default=0,
+                   help="zero-based contact-sheet offset for the next bounded widget (default: 0)")
+    p.add_argument("--max-items", type=int, default=6)
+    p.add_argument("--max-total-bytes", type=int, default=192 * 1024,
+                   help="soft ceiling for serialized image data URLs (default: 192 KiB)")
+    p.add_argument("--max-widget-bytes", type=int, default=256 * 1024,
+                   help="soft ceiling for complete UTF-8 widget_code (default: 256 KiB)")
     p.set_defaults(func=build_widget)
     args = parser.parse_args()
     try:
