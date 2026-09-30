@@ -11,6 +11,7 @@ import base64
 import json
 import mimetypes
 import pathlib
+import re
 import sys
 
 try:
@@ -38,6 +39,24 @@ def read_items(path: pathlib.Path) -> list[dict]:
         if line.strip():
             rows.append(json.loads(line))
     return rows
+
+
+def resolve_path(value: str | pathlib.Path, *, base_dir: pathlib.Path) -> pathlib.Path:
+    """Resolve paths recorded by a producer without depending on its cwd."""
+    path = pathlib.Path(value)
+    if path.is_absolute():
+        return path
+    candidate = base_dir / path
+    if candidate.exists():
+        return candidate
+    return path
+
+
+def safe_asset_filename(asset_id: str) -> str:
+    # Cloud references can contain separators or characters that are awkward
+    # in a workspace filename. Keep the mapping deterministic and flat.
+    value = re.sub(r"[^A-Za-z0-9._-]+", "_", asset_id)
+    return value or "asset"
 
 
 def load_font(size: int):
@@ -87,6 +106,9 @@ def build_widget(args):
     renderable after the source process exits.
     """
     index = read_preview_index(pathlib.Path(args.preview_index))
+    index_path = pathlib.Path(args.preview_index).resolve()
+    if args.max_sheets <= 0 or args.max_total_bytes <= 0:
+        fail("max-sheets and max-total-bytes must be positive")
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     cards = []
@@ -100,13 +122,13 @@ def build_widget(args):
         if not raw_path:
             skipped += 1
             continue
-        path = pathlib.Path(raw_path)
+        path = resolve_path(raw_path, base_dir=index_path.parent)
         size = path.stat().st_size if path.exists() else 0
         if not size or used + size > args.max_total_bytes:
             skipped += 1
             continue
         cards.append(
-            '<figure><img loading="lazy" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
+            '<figure><img loading="eager" decoding="async" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
             % (image_data_url(path), number, number, int(sheet.get("count") or 0))
         )
         used += size
@@ -135,17 +157,28 @@ def build_widget(args):
 def build(args):
     if Image is None:
         fail("Pillow is required for preview-pack; use the host image runtime")
-    items = read_items(pathlib.Path(args.items))
+    if args.max_bytes <= 0 or args.columns <= 0 or args.rows <= 0 or args.tile <= 0:
+        fail("max-bytes, columns, rows and tile must be positive")
+    items_path = pathlib.Path(args.items).resolve()
+    items = read_items(items_path)
     output = pathlib.Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
-    thumb_dir = pathlib.Path(args.thumbnail_dir)
+    thumb_dir = pathlib.Path(args.thumbnail_dir).resolve()
     valid = []
     missing = []
     for item in items:
+        if not isinstance(item, dict):
+            missing.append({"asset_id": None, "thumbnail": "", "error": "item must be an object"})
+            continue
         asset_id = item.get("asset_id")
-        thumb = item.get("thumbnail") or str(thumb_dir / f"{asset_id.replace(':', '_')}.jpg")
-        path = pathlib.Path(thumb)
-        if not path.exists() or path.stat().st_size == 0:
+        if not asset_id:
+            raise ValueError("each preview item must contain asset_id")
+        thumb = item.get("thumbnail")
+        if thumb:
+            path = resolve_path(str(thumb), base_dir=items_path.parent)
+        else:
+            path = thumb_dir / f"{safe_asset_filename(str(asset_id))}.jpg"
+        if not path.is_file() or path.stat().st_size == 0:
             missing.append({"asset_id": asset_id, "thumbnail": str(path)})
             continue
         valid.append({**item, "thumbnail": str(path)})

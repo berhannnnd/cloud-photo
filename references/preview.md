@@ -1,5 +1,7 @@
 # 对话内预览
 
+`visualize`/`show_widget` 只负责在对话 iframe 中执行已经提交的 HTML fragment；它不启动、保活或代理本机图片服务。任何依赖 `http.server`、固定端口、`localhost` 或 `127.0.0.1` 的方案都属于已废弃的调试方案，不能进入最终回复。
+
 图片优先规则见 [image-first-preview.md](image-first-preview.md)。用户要求查看图片时必须展示原图；本文件中的所有状态卡、文件名卡片和交付文件都不能替代实际图片展示。
 
 分类图片展示是硬性完成条件。数量、路径、标签和报告都可以省略，分类后的图片不能省略。
@@ -25,6 +27,8 @@
 本地 HTTP 服务可以短暂用于生成或调试，但不能把它的 `localhost`/`127.0.0.1` 地址放进 `show_widget`。图片必须先落盘到当前 workspace 的 `.cloud-photo/`，再以内嵌且有大小上限的 `data:image/...` 放入自包含可视化，或由图片读取工具返回原生图片附件；服务停止、端口失效或临时目录清理不能让已经交付的预览失效。`deliver_files` 只能提供持久化文件卡片，不能代替正文中的图片附件。
 
 推荐用 `scripts/preview_pack.py widget` 把 `preview-index.json` 中的持久化小图打包为自包含 HTML fragment，再把 fragment 原样交给 `show_widget`。该命令按总字节数和组数截断，超出部分分批生成；它不会启动服务，也不会在 fragment 中留下工作区路径。
+
+`preview-index.json` 中的相对图片路径按索引文件所在目录解析，因此从另一工作目录生成 widget 也不会丢图。内嵌图片使用 eager 加载；`show_widget` 返回 accepted 仍只代表载荷被接收，仍应通过原生图片附件或客户端可见结果确认实际渲染。
 
 ### `show_widget`：即时状态和计划预览
 
