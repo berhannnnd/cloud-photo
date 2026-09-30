@@ -20,6 +20,8 @@
 
 本地绝对路径不能直接写成 Markdown 图片链接。必须先用图片读取/原生媒体附件能力把文件内容交给对话客户端；否则会出现空白区域或破损图片图标。
 
+同样不能把 `localhost`、`127.0.0.1` 或 workspace 本地 HTTP 服务地址写进 widget。它们只在 Agent 进程所在主机可见，客户端无法加载。
+
 ### `show_widget`：即时状态和计划预览
 
 调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：

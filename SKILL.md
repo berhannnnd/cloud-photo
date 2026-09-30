@@ -53,7 +53,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 3. 调用 Nexus 内置 `show_widget`，只有在组件能渲染真实图片引用时才用图片 tile/grid 展示候选照片；否则使用原生图片附件。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在详情中；widget 只做本地筛选/展开，不执行云盘写操作。
 4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
 
-只有实际发送图片附件或成功调用 `show_widget` 后，才算完成预览；仅生成 base64、contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止用本地绝对路径 Markdown 图片链接代替图片附件。
+只有实际发送图片附件或成功调用 `show_widget` 后，才算完成预览；仅生成 base64、contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止用本地绝对路径、`file://`、`localhost` 或 `127.0.0.1` 图片地址代替图片附件。
 5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
