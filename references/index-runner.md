@@ -34,7 +34,7 @@ python3 scripts/index_runner.py report \
   --output .cloud-photo/reports/latest.json
 ```
 
-- `ingest` 只保留图片（可用 `--include-non-images` 改变），按稳定文件引用生成 manifest 和 checkpoint。输出目录已有 manifest 时，默认保留同一 `asset_id` 已完成的三类标签和状态，只刷新云盘元数据；源哈希明确变化才重置该条记录。确实要从头重建时显式加 `--reset`。
+- `ingest` 只保留图片（可用 `--include-non-images` 改变），按稳定文件引用生成 manifest 和 checkpoint。云盘 `fileRef` 轮换时，若当前清单能唯一匹配旧记录的 `(provider, path)` 或 `source_hash`，会沿用旧 `asset_id` 并只更新当前 `file_id`；无法唯一匹配时不会猜测合并。输出目录已有 manifest 时，默认保留同一 `asset_id` 已完成的三类标签和状态，只刷新云盘元数据；源哈希明确变化才重置该条记录。确实要从头重建时显式加 `--reset`。
 - `batch` 按 manifest 的稳定顺序只选 `pending/partial/error`，`next_offset` 是原 manifest 行号游标，不是“当前未完成列表”的下标；因此前面批次完成后继续使用返回的 `next_offset` 不会跳过记录。需要重试较早失败项时从 `--offset 0` 重新取批次。
 - `run-batch` 接收云盘 Skill 返回的下载结果，校验本地文件、生成缩略图任务清单，并推进 checkpoint；它不读取凭据、不调用云盘 API。
 - `apply` 只接受三类标签，按 `asset_id` 合并；同批只允许每个资产出现一次。只提交一类派生标签时标记 `partial`，同时提交 `thumbnail_tags` 和 `vision_tags` 才默认标记 `complete`；未知资产不会写入，并记录已处理资产和批次。

@@ -124,9 +124,18 @@ def cmd_ingest(args):
     output = pathlib.Path(args.output_dir); output.mkdir(parents=True, exist_ok=True)
     items = read_jsonl(pathlib.Path(args.input)); rows = []; seen = set(); skipped = 0
     prior = {}
+    prior_by_path = {}
+    prior_by_hash = {}
     prior_path = output / "manifest.jsonl"
     if prior_path.exists() and not args.reset:
         prior = {row["asset_id"]: row for row in read_manifest(prior_path)}
+        for old_id, old in prior.items():
+            old_path = (old.get("source_ref") or {}).get("path")
+            if old_path:
+                prior_by_path.setdefault((old["source_ref"].get("provider"), str(old_path)), []).append(old_id)
+            old_hash = (old.get("index_state") or {}).get("source_hash")
+            if old_hash:
+                prior_by_hash.setdefault(str(old_hash), []).append(old_id)
     for item in items:
         if not isinstance(item, dict): continue
         ref = listing_value(item, "fileRef", "file_id", "id")
@@ -137,10 +146,21 @@ def cmd_ingest(args):
         is_image = kind == "image" or mime.startswith("image/") or suffix in IMAGE_EXTS
         if not ref or (not is_image and not args.include_non_images):
             skipped += 1; continue
+        path = listing_value(item, "path", "namePath") or name
+        source_hash = listing_value(item, "source_hash", "hash")
         asset_id = "cm:" + str(ref)
+        # fileRef is a provider handle and can rotate after a download. When
+        # the current handle is new, reuse the old identity only for a unique
+        # path or source hash match; ambiguous matches remain distinct rather
+        # than silently merging two photos.
+        if asset_id not in prior:
+            path_matches = prior_by_path.get((args.provider, str(path)), []) if path else []
+            hash_matches = prior_by_hash.get(str(source_hash), []) if source_hash else []
+            candidates = path_matches if len(path_matches) == 1 else hash_matches
+            if len(candidates) == 1:
+                asset_id = candidates[0]
         if asset_id in seen: fail(f"duplicate source reference: {ref}")
         seen.add(asset_id)
-        path = listing_value(item, "path", "namePath") or name
         fresh = {
             "schema_version": SCHEMA,
             "asset_id": asset_id,
@@ -153,7 +173,7 @@ def cmd_ingest(args):
             },
             "thumbnail_tags": {"orientation": "", "dominant_colors": [], "scene_hints": [], "ocr_text": []},
             "vision_tags": {"subjects": [], "actions": [], "scene": [], "time": [], "people": [], "objects": []},
-            "index_state": {"status": "pending", "updated_at": now(), "source_hash": listing_value(item, "source_hash", "hash")},
+            "index_state": {"status": "pending", "updated_at": now(), "source_hash": source_hash},
         }
         previous = prior.get(asset_id)
         if previous:
