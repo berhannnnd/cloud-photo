@@ -25,3 +25,6 @@
 ## 当前适配版本
 
 本模块固定按 `@org-vt43r0t0/cm-cloud-manage` 2.0.0 的能力边界编排。详细差异见 [cm-cloud-compatibility.md](cm-cloud-compatibility.md)：个人云可以全盘读取和下载，但文件写入只落智能体专属目录；文件层面没有移动、删除、改名，整理文件夹时只能复制，整理相簿时使用相簿 API。
+
+
+索引产物上传使用 `files mkdir` / `files upload` 写入专属目录；它不代表原始照片已被移动。

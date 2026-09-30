@@ -13,3 +13,8 @@ photo-index 分三个阶段工作：
 - `file_metadata`：云盘和图片文件本身提供的事实。
 - `thumbnail_tags`：由缩略图或本地轻量处理得到的派生事实。
 - `vision_tags`：多模态模型根据图片内容生成的可检索词；模型不返回置信度。
+
+
+## 上传索引产物
+
+本地 manifest 通过 schema 校验后，索引模式应按 [cloud-artifacts.md](cloud-artifacts.md) 上传到智能体专属目录的 `.cloud-photo/`。上传是索引流程的最后一个云盘写阶段，必须在批次合并成功后执行，并把真实上传引用写入扫描报告。原始照片不移动、不复制。
