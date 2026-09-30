@@ -44,10 +44,12 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 索引或整理完成后，必须把“做了什么”和“哪些图片对应哪些结果”展示在当前对话中：
 
-1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并作为原生图片附件直接展示；图片必须出现在回复主体中，不能只生成一个文件卡片。候选过多时按批次展示原图，contact sheet 只作总览附件。
+1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并让用户能打开真实原图；回复主体使用经过尺寸和 payload 检查的降采样预览图，图片必须出现在回复主体中，不能只生成一个文件卡片。候选过多时按批次展示，contact sheet 只作总览附件。
 2. 用普通文字给出真实数量和状态。
 3. 调用 Nexus 内置 `show_widget`，只有在组件能渲染真实图片引用时才用图片 tile/grid 展示候选照片；否则使用原生图片附件。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在详情中；widget 只做本地筛选/展开，不执行云盘写操作。
 4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
+
+只有实际发送图片附件或成功调用 `show_widget` 后，才算完成预览；仅生成 base64、contact sheet 文件或 widget HTML 草稿不算展示成功。
 5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
@@ -73,6 +75,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .cloud-photo
 python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
 python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
+python scripts/preview_pack.py build --items .cloud-photo/organize/candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/organize/preview
 python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl

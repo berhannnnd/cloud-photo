@@ -14,6 +14,8 @@
 
 预览图片必须先物化到 workspace 的 `.cloud-photo/` 持久目录并做存在性检查；只存在于 `/tmp` 的文件不能直接作为预览依赖。
 
+最终回复还要做图片体积检查：原图用于按需查看，widget 内嵌降采样预览；预览组过大时拆批或降低尺寸/质量，不能把原图 base64 直接塞进组件。
+
 ### `show_widget`：即时状态和计划预览
 
 调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：
@@ -49,3 +51,5 @@
 4. `nexus.deliver_files`：manifest、checkpoint、报告和完整 contact sheet。
 
 `show_widget` 的工具回执只表示已接受，不证明客户端已经渲染；文字结果仍必须给出可核对的状态和文件产物链接。
+
+如果没有实际的 `show_widget` 调用和回执，不能只根据“已生成 base64/contact sheet”声称预览完成。用户中断、payload 过大或组件调用失败时，应明确标记预览未完成并重新发起小批次渲染。
