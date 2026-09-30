@@ -48,7 +48,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
 3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
 4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：先用 `preview_pack.py markdown` 生成每批最多 6 张的原生工作区图片画廊并把画廊内容放入回复；需要统计或计划卡片时再加载 `visualize` Skill 调用一次 `show_widget`，最后用 `nexus.deliver_files` 交付清单和报告。
+5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：先用 `preview_pack.py markdown` 生成每批一个、包含最多 6 张照片的紧凑工作区图片画廊并把画廊内容放入回复；需要统计或计划卡片时再加载 `visualize` Skill 调用一次 `show_widget`，最后用 `nexus.deliver_files` 交付清单和报告。
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
@@ -58,7 +58,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并让用户能打开真实原图；回复主体必须按分类使用经过尺寸和 payload 检查的图片预览。候选过多时按类别和批次展示，contact sheet 只作总览附件。
 2. 用普通文字给出真实数量和状态。
-3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批最多 6 张；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在图片下方；不要把图片 Base64 读入上下文。
+3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批生成一张最多包含 6 张照片的 contact sheet；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在图片下方；不要把图片 Base64 读入上下文。
 4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
 
 只有回复中实际出现可解析的工作区 Markdown 图片，或收到平台原生图片附件后，才算完成预览；仅生成 contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止读取或拼接任何 `.b64`/`sheets_b64.txt` 文件。

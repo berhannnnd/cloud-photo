@@ -13,8 +13,8 @@ python scripts/preview_pack.py markdown \
   --output .cloud-photo/organize/preview/gallery-01.md
 ```
 
-3. 将输出 Markdown 原样放进对话。图片使用 `![名称](.cloud-photo/...)`，Nexus 负责鉴权和 inline 读取；路径必须是工作区相对路径。
-4. 每批最多 6 张。候选更多时按批次展示，先展示当前命中的类别，再继续下一批。
+3. 将输出 Markdown 原样放进对话。默认只放一张 `![照片预览](.cloud-photo/.../sheet-01.jpg)`，下方用编号列出对应路径；Nexus 负责鉴权和 inline 读取。路径必须是工作区相对路径。
+4. 每批生成一张最多包含 6 张照片的 contact sheet。候选更多时按批次展示，先展示当前命中的类别，再继续下一批；用户明确要逐张查看时才加 `--layout individual`。
 5. 图片下方可补充短文件名、云盘路径、标签和“候选/目标/状态”。用户可见内容不显示 `file_id`。
 
 缩略图适合快速筛选和总览；用户明确要求查看原图时，应取得并展示原图。contact sheet 只能作为总览，不能在没有实际图片时冒充预览。

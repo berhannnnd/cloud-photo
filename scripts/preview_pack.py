@@ -119,12 +119,12 @@ def markdown_destination(path: str) -> str:
 
 
 def build_markdown(args):
-    """Write a short native Nexus Markdown image gallery for one batch.
+    """Write a compact workspace Markdown gallery for one preview batch.
 
-    The gallery intentionally contains workspace-relative image paths rather
-    than data URLs. Nexus resolves these paths through its authenticated
-    workspace preview endpoint, so no model-generated Base64 or sidecar HTTP
-    service is involved.
+    ``sheet`` is the default layout because Nexus renders each Markdown image
+    as a full-width card. A single contact sheet keeps a six-photo result
+    compact and readable; ``individual`` remains available when the user asks
+    to inspect each image separately.
     """
     index_path = pathlib.Path(args.preview_index).resolve()
     index = read_preview_index(index_path)
@@ -134,31 +134,61 @@ def build_markdown(args):
     if args.max_items <= 0:
         fail("max-items must be positive")
     sheet = sheets[args.sheet_offset]
-    items = sheet.get("items") or []
+    items = [item for item in (sheet.get("items") or []) if isinstance(item, dict)]
     if len(items) > args.max_items:
         fail(f"preview sheet contains {len(items)} photos; max-items is {args.max_items}")
     workspace_root = pathlib.Path(args.workspace_root).resolve() if args.workspace_root else None
+    if workspace_root is None:
+        for parent in (index_path, *index_path.parents):
+            if parent.name == ".cloud-photo":
+                workspace_root = parent.parent
+                break
+    if workspace_root is None:
+        fail(f"cannot infer workspace root from preview index: {index_path}")
+
     lines = [f"### 照片预览第 {args.sheet_offset + 1} 组", ""]
     rendered = 0
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        raw = item.get("preview_image") or item.get("thumbnail")
-        if not raw:
-            continue
-        image_path = resolve_path(raw, base_dir=index_path.parent)
-        if not image_path.exists() or image_path.stat().st_size == 0:
-            continue
-        relative = workspace_relative_path(image_path, workspace_root)
-        name = str(item.get("name") or image_path.name).replace("[", "\\[").replace("]", "\\]")
-        source_path = str(item.get("path") or "").strip()
-        lines.append(f"![{name}]({markdown_destination(relative)})")
-        if source_path:
-            lines.append(f"`{name}` · {source_path}")
+    if args.layout == "sheet":
+        raw_sheet = sheet.get("path")
+        if not raw_sheet:
+            fail("preview sheet has no path")
+        sheet_path = resolve_path(raw_sheet, base_dir=index_path.parent)
+        if not sheet_path.is_absolute():
+            sheet_path = workspace_root / sheet_path
+        if not sheet_path.exists() or sheet_path.stat().st_size == 0:
+            fail(f"preview sheet not found or empty: {sheet_path}")
+        relative = workspace_relative_path(sheet_path, workspace_root)
+        lines.append(f"![照片预览第 {args.sheet_offset + 1} 组]({markdown_destination(relative)})")
         lines.append("")
-        rendered += 1
+        rendered = len(items)
+    else:
+        for item in items:
+            raw = item.get("preview_image") or item.get("thumbnail")
+            if not raw:
+                continue
+            image_path = resolve_path(raw, base_dir=index_path.parent)
+            if not image_path.exists() or image_path.stat().st_size == 0:
+                continue
+            relative = workspace_relative_path(image_path, workspace_root)
+            name = str(item.get("name") or image_path.name).replace("[", "\\[").replace("]", "\\]")
+            source_path = str(item.get("path") or "").strip()
+            lines.append(f"![{name}]({markdown_destination(relative)})")
+            if source_path:
+                lines.append(f"`{name}` · {source_path}")
+            lines.append("")
+            rendered += 1
     if rendered == 0:
         fail("no renderable preview images in the selected sheet")
+
+    if args.layout == "sheet":
+        lines.append("图片对应路径：")
+        for number, item in enumerate(items, start=1):
+            name = str(item.get("name") or "未命名图片")
+            source_path = str(item.get("path") or "").strip()
+            if source_path:
+                lines.append(f"{number}. `{name}` · {source_path}")
+            else:
+                lines.append(f"{number}. `{name}`")
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
@@ -166,6 +196,7 @@ def build_markdown(args):
         "output": str(output),
         "sheet": args.sheet_offset + 1,
         "photos": rendered,
+        "layout": args.layout,
         "transport": "workspace-markdown-image",
     }, ensure_ascii=False))
 
@@ -368,6 +399,8 @@ def main():
     p.add_argument("--output", required=True)
     p.add_argument("--sheet-offset", type=int, default=0)
     p.add_argument("--max-items", type=int, default=6)
+    p.add_argument("--layout", choices=("sheet", "individual"), default="sheet",
+                   help="compact contact sheet (default) or one Markdown image per item")
     p.add_argument("--workspace-root", help="workspace root; inferred from .cloud-photo when omitted")
     p.set_defaults(func=build_markdown)
     args = parser.parse_args()

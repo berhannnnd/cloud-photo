@@ -4,7 +4,7 @@
 
 ## 对话中的结果顺序
 
-1. 先展示整理后的分类图片。运行 `scripts/preview_pack.py markdown` 生成每批最多 6 张的 `.cloud-photo/...` Markdown 画廊，并把内容原样放入回复。
+1. 先展示整理后的分类图片。运行 `scripts/preview_pack.py markdown` 生成每批一个包含最多 6 张照片的 `.cloud-photo/...` 紧凑 Markdown 画廊，并把内容原样放入回复。
 2. 用一句话说明真实执行结果；成功数只能来自云盘执行回执，未知和失败不能计入成功。
 3. 在每张图下补充短文件名、云盘路径、主要标签和“候选/目标/状态”。用户可见内容不显示 `file_id`。
 4. 需要结构化统计或计划时，再加载 `visualize` Skill 调用一次 `show_widget`。widget 只放数量、标签、目标和状态，不放照片 Base64。
