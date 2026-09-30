@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build small, persistent image preview sheets for cloud-photo results.
+"""Build persistent, bounded image previews for cloud-photo results.
 
-The Nexus ``visualize`` Skill ultimately delivers a fragment through its
-``show_widget`` tool.  Keep each call bounded so one malformed or oversized
-payload cannot hide the rest of a conversation.  The generated fragment is
-self-contained (data URLs), while the source sheets remain durable files in
-``.cloud-photo`` for attachments and audit.
+The default ``markdown`` command emits short workspace-relative Markdown image
+links. Nexus resolves those links through its authenticated workspace preview
+endpoint, so the model does not copy image bytes and no sidecar HTTP service is
+needed. The legacy ``widget`` command remains available only for an explicitly
+requested self-contained visualize fragment; normal photo replies must use
+``markdown``.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import mimetypes
 import pathlib
 import re
 import sys
+from urllib.parse import quote
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -89,6 +91,83 @@ def read_preview_index(path: pathlib.Path) -> dict:
     if not isinstance(value, dict) or not isinstance(value.get("sheets"), list):
         fail("preview index must contain a sheets array")
     return value
+
+
+def workspace_relative_path(path: pathlib.Path, workspace_root: pathlib.Path | None) -> str:
+    """Return a workspace-relative path safe for Nexus Markdown image loading."""
+    resolved = path.resolve()
+    root = workspace_root.resolve() if workspace_root else None
+    if root is None:
+        for parent in (resolved, *resolved.parents):
+            if parent.name == ".cloud-photo":
+                root = parent.parent
+                break
+    if root is None:
+        fail(f"preview image is outside a workspace: {path}")
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        fail(f"preview image is outside the workspace root: {path}")
+    if not relative.parts or relative.parts[0] != ".cloud-photo":
+        fail(f"preview image must be under .cloud-photo: {path}")
+    return "/".join(relative.parts)
+
+
+def markdown_destination(path: str) -> str:
+    """Use angle brackets so spaces in photo names remain one Markdown URL."""
+    return f"<{path}>" if any(char.isspace() for char in path) else path
+
+
+def build_markdown(args):
+    """Write a short native Nexus Markdown image gallery for one batch.
+
+    The gallery intentionally contains workspace-relative image paths rather
+    than data URLs. Nexus resolves these paths through its authenticated
+    workspace preview endpoint, so no model-generated Base64 or sidecar HTTP
+    service is involved.
+    """
+    index_path = pathlib.Path(args.preview_index).resolve()
+    index = read_preview_index(index_path)
+    sheets = index["sheets"]
+    if args.sheet_offset < 0 or args.sheet_offset >= len(sheets):
+        fail(f"sheet-offset {args.sheet_offset} is outside the preview index ({len(sheets)} sheets)")
+    if args.max_items <= 0:
+        fail("max-items must be positive")
+    sheet = sheets[args.sheet_offset]
+    items = sheet.get("items") or []
+    if len(items) > args.max_items:
+        fail(f"preview sheet contains {len(items)} photos; max-items is {args.max_items}")
+    workspace_root = pathlib.Path(args.workspace_root).resolve() if args.workspace_root else None
+    lines = [f"### 照片预览第 {args.sheet_offset + 1} 组", ""]
+    rendered = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        raw = item.get("preview_image") or item.get("thumbnail")
+        if not raw:
+            continue
+        image_path = resolve_path(raw, base_dir=index_path.parent)
+        if not image_path.exists() or image_path.stat().st_size == 0:
+            continue
+        relative = workspace_relative_path(image_path, workspace_root)
+        name = str(item.get("name") or image_path.name).replace("[", "\\[").replace("]", "\\]")
+        source_path = str(item.get("path") or "").strip()
+        lines.append(f"![{name}]({markdown_destination(relative)})")
+        if source_path:
+            lines.append(f"`{name}` · {source_path}")
+        lines.append("")
+        rendered += 1
+    if rendered == 0:
+        fail("no renderable preview images in the selected sheet")
+    output = pathlib.Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    print(json.dumps({
+        "output": str(output),
+        "sheet": args.sheet_offset + 1,
+        "photos": rendered,
+        "transport": "workspace-markdown-image",
+    }, ensure_ascii=False))
 
 
 def image_data_url(path: pathlib.Path) -> str:
@@ -284,6 +363,13 @@ def main():
     p.add_argument("--max-widget-bytes", type=int, default=256 * 1024,
                    help="hard ceiling for complete UTF-8 widget_code (default: 256 KiB)")
     p.set_defaults(func=build_widget)
+    p = sub.add_parser("markdown", help="Create one native Nexus workspace image gallery")
+    p.add_argument("--preview-index", required=True)
+    p.add_argument("--output", required=True)
+    p.add_argument("--sheet-offset", type=int, default=0)
+    p.add_argument("--max-items", type=int, default=6)
+    p.add_argument("--workspace-root", help="workspace root; inferred from .cloud-photo when omitted")
+    p.set_defaults(func=build_markdown)
     args = parser.parse_args()
     try:
         args.func(args)

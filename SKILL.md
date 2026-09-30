@@ -9,17 +9,13 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 无论任何场景，用户要求查找、分类、整理或预览照片时，**必须展示分类后的实际图片**。图片展示是结果的必要条件和最高优先级：即使时间、payload、组件能力或候选数量受限，也要先按类别分批展示图片；文件名、路径、标签、数量、统计、操作计划和报告都可以省略、延后或作为辅助信息，但不能用这些文字内容替代图片。没有实际图片展示就不能宣称任务结果已完成。
 
-## visualize 的边界（必须遵守）
+## 对话内图片展示（必须遵守）
 
-在 Nexus 中，`visualize` 是提供生成规则的内置 Skill，`show_widget` 是它唯一的渲染工具；不存在可以绕开 `show_widget` 的第二个图片渲染后端。每次展示前必须显式加载 `visualize` Skill，再调用一次 `mcp__nexus__show_widget`（或当前运行时映射的同名工具）。不能只调用工具而声称“走了 visualize”，也不能把 Skill 名称当成图片服务。
+照片展示默认走 Nexus 原生工作区 Markdown 图片链路，不走 `show_widget` 的 Base64。`preview_pack.py markdown` 会生成短的 `![文件名](.cloud-photo/...)` 画廊；Nexus 会把这些工作区相对路径解析为带权限的 inline preview URL。模型只传路径和短 caption，不读取或复制图片二进制，因此不会出现 Base64 被插入、截断或把模型轮次拖死的问题。
 
-`show_widget` 是 Nexus 对话里的 HTML 渲染器，不是图片文件服务器，也不会替 Agent 启动或托管 `http.server`。调用成功只表示 HTML fragment 被接收，不能证明 iframe 中的每一张图片已经加载；不能用 `accepted: true` 作为像素渲染验收。
+`show_widget` 只用于数量、标签统计、整理计划等结构化状态。它不是图片文件服务器，也不会替 Agent 启动或托管 `http.server`；调用成功只表示 HTML fragment 被接收，不能证明 iframe 中的图片已加载。照片结果不能把 `show_widget` 当作主要图片展示通道。
 
-Nexus 对 `show_widget` 强制执行两个载荷上限：完整 UTF-8 `widget_code` 不超过 256 KiB，内嵌图片 data URL 合计不超过 192 KiB；客户端仍不会回报单张图片是否完成加载。为了保持可读和稳定，本 Skill 规定每次 widget 最多一个 contact sheet、最多 6 张照片。超过限制必须先由 `preview_pack.py build` 拆成后续批次，再由 `preview_pack.py widget` 每次取一个批次；同一轮禁止连续发送三个 widget，也禁止把多个批次拼成一个超长 HTML。
-
-照片 `<img>` 使用固定结构：`src="data:image/jpeg;base64,<完整连续 Base64>"`，并带 `loading="eager"`、`decoding="async"`、`style="display:block;width:100%;height:auto;max-height:360px;object-fit:contain"`。JPEG、PNG、WebP、GIF 均可；工作区路径、`file://`、`localhost`、换行截断或 MIME 与内容不匹配都不能靠 CSS 修复。
-
-因此 widget 只能使用自包含的 `data:image/...`、本轮实际提供的原生图片附件或平台明确支持的稳定资源句柄。禁止把 `localhost`、`127.0.0.1`、`file://`、workspace 绝对路径或 `/tmp` 路径写入 `<img src>`，也不要通过固定端口和 `pkill` 管理预览服务。预览文件先落到 workspace 的 `.cloud-photo/`，由 `preview_pack.py` 生成受大小约束的自包含片段；原图查看优先走原生图片附件。若无法取得可渲染的图片资源，必须报告“图片预览未完成”，不能用文件名、路径或成功提示代替。
+照片预览文件必须落在当前 workspace 的 `.cloud-photo/` 下，并由 Markdown 画廊逐张引用。禁止使用 `file://`、`localhost`、`127.0.0.1`、绝对路径、`/tmp` 路径或手工 Base64。不要通过固定端口和 `pkill` 管理预览服务；切换会话或停止中转服务不能影响已经落盘的图片。若工作区图片 URL 无法取得，必须报告“图片预览未完成”，不能用文件名或交付文件卡片代替。
 
 这是一个顶层 Skill，安装后同时提供三个协作模块：
 
@@ -52,7 +48,7 @@ Nexus 对 `show_widget` 强制执行两个载荷上限：完整 UTF-8 `widget_co
 2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
 3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
 4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：先加载 `visualize` Skill，再按每批一个 contact sheet（最多 6 张）调用一次 `show_widget` 展示实际图片和状态；超出部分转为后续批次或原生图片附件，最后用 `nexus.deliver_files` 交付清单和报告。
+5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：先用 `preview_pack.py markdown` 生成每批最多 6 张的原生工作区图片画廊并把画廊内容放入回复；需要统计或计划卡片时再加载 `visualize` Skill 调用一次 `show_widget`，最后用 `nexus.deliver_files` 交付清单和报告。
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
@@ -62,11 +58,11 @@ Nexus 对 `show_widget` 强制执行两个载荷上限：完整 UTF-8 `widget_co
 
 1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并让用户能打开真实原图；回复主体必须按分类使用经过尺寸和 payload 检查的图片预览。候选过多时按类别和批次展示，contact sheet 只作总览附件。
 2. 用普通文字给出真实数量和状态。
-3. 显式加载 `visualize` Skill，读取 `preview_pack.py widget` 生成的单批 fragment，并只调用一次 Nexus 内置 `show_widget`。每批只能有一个 contact sheet、最多 6 张照片；只有在组件能渲染自包含图片数据时才用图片 tile/grid，否则使用原生图片附件。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在详情中；widget 只做本地筛选/展开，不执行云盘写操作。
+3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批最多 6 张；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在图片下方；不要把图片 Base64 读入上下文。
 4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
 
-只有实际发送图片附件或成功调用 `show_widget` 后，才算完成预览；仅生成 base64、contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止手工读取或生成 `sheets_b64.txt`，禁止把多张图片的 base64 在回复中拼接，禁止用本地绝对路径、`file://`、`localhost` 或 `127.0.0.1` 图片地址代替图片附件。
-5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。若一个批次超过 6 张，不要在同一轮连续调用多个 `show_widget`；先展示一个批次，下一轮继续剩余批次，或改用原生图片附件。
+只有回复中实际出现可解析的工作区 Markdown 图片，或收到平台原生图片附件后，才算完成预览；仅生成 contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止读取或拼接任何 `.b64`/`sheets_b64.txt` 文件。
+5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。若一个批次超过 6 张，先用 `--sheet-offset` 生成下一批画廊，不要连续调用多个 `show_widget`。
 
 不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
 
@@ -92,8 +88,8 @@ python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .
 python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
 python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
 python scripts/preview_pack.py build --items .cloud-photo/organize/candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/organize/preview
-python scripts/preview_pack.py widget --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/widget.html
-# 下一批使用 --sheet-offset 1、2…；每次只把一个生成的 widget.html 原样交给 show_widget
+python scripts/preview_pack.py markdown --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/gallery-01.md
+# 下一批使用 --sheet-offset 1、2…；把生成的 gallery-02.md 原样放入回复
 python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl

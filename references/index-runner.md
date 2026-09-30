@@ -38,7 +38,7 @@ python3 scripts/index_runner.py report \
 - `batch` 按 manifest 的稳定顺序只选 `pending/partial/error`，`next_offset` 是原 manifest 行号游标，不是“当前未完成列表”的下标；因此前面批次完成后继续使用返回的 `next_offset` 不会跳过记录。需要重试较早失败项时从 `--offset 0` 重新取批次。
 - `run-batch` 接收云盘 Skill 返回的下载结果，校验本地文件、生成缩略图任务清单，并推进 checkpoint；它不读取凭据、不调用云盘 API。
 - `apply` 只接受三类标签，按 `asset_id` 合并；同批只允许每个资产出现一次。只提交一类派生标签时标记 `partial`，同时提交 `thumbnail_tags` 和 `vision_tags` 才默认标记 `complete`；未知资产不会写入，并记录已处理资产和批次。
-- `report` 输出 pending、complete、partial、error 数量；展示时先加载 `visualize` Skill，再由 `show_widget` 按 256 KiB widget、192 KiB 内嵌图片上限和一个 contact sheet、最多 6 张照片的显示预算展示，并同步写入交付报告。
+- `report` 输出 pending、complete、partial、error 数量；展示时先用 `scripts/preview_pack.py markdown` 生成每批最多 6 张的 `.cloud-photo/...` 工作区图片画廊并放入回复；需要统计时再加载 `visualize` Skill，由 `show_widget` 展示结构化进度和标签分布，并同步写入交付报告。
 
 模型侧只需为每条记录返回：
 

@@ -1,71 +1,34 @@
-# 对话内预览
+# 对话内图片预览
 
-在 Nexus 中，`visualize` Skill 规定生成方式，`show_widget` 是唯一提交 HTML fragment 的工具。展示前必须加载 `visualize` Skill；不要把 `visualize` 当成另一个可绕过 `show_widget` 的图片服务。它不启动、保活或代理本机图片服务。任何依赖 `http.server`、固定端口、`localhost` 或 `127.0.0.1` 的方案都属于已废弃的调试方案，不能进入最终回复。
+照片展示使用 Nexus 原生工作区 Markdown 图片链路。它会把 `.cloud-photo/` 下的相对路径解析为带权限的 inline preview URL，图片由 Nexus 读取，模型只传短路径，不搬运图片二进制。
 
-Nexus 强制限制 `widget_code` 为 256 KiB UTF-8、内嵌图片 data URL 合计为 192 KiB。为避免图片数量变多时出现空白、截断或 iframe 高度异常，本 Skill 进一步规定每次只传一个 contact sheet、最多 6 张照片。超限由 `preview_pack.py` 按批次拆分，不能把多个批次拼成一个 widget，也不能在同一轮连续调用三个 `show_widget`。
+## 硬性规则
 
-图片优先规则见 [image-first-preview.md](image-first-preview.md)。用户要求查看图片时必须展示原图；本文件中的所有状态卡、文件名卡片和交付文件都不能替代实际图片展示。
+- 只要用户要求查找、分类、整理或预览照片，回复中必须先出现实际图片；文件名、路径、标签、统计和报告只能作为辅助信息。
+- 预览文件必须落盘到当前 workspace 的 `.cloud-photo/`，不能只放在 `/tmp`。下载完成后先复制到该目录，再生成画廊。
+- 使用 `scripts/preview_pack.py markdown` 从 `preview-index.json` 生成一批 Markdown 图片，默认最多 6 张；把生成文件的内容原样放入当前回复。
+- Markdown 图片链接必须是 `.cloud-photo/...` 工作区相对路径。禁止 `file://`、`localhost`、`127.0.0.1`、绝对路径、临时下载 URL 和手工 Base64。
+- 每批最多 6 张；更多结果按 `--sheet-offset 1`、`2` 继续生成，不把大量图片拼进一次回复。
+- `show_widget` 只展示数量、标签分布、候选到目标的结构化状态或整理计划，不承载照片，也不作为图片文件服务器。只有图片 Markdown 真正出现在回复中，才算完成图片预览。
 
-分类图片展示是硬性完成条件。数量、路径、标签和报告都可以省略，分类后的图片不能省略。
+## 标准流程
 
-整理结果的完整展示规范见 [evidence-pack.md](evidence-pack.md)。
+1. 用 `cm-cloud-manage` 取得实际候选照片或持久化缩略图，并复制到 `.cloud-photo/`。
+2. 检查每个引用存在、非空且为图片格式。
+3. 运行：
 
-索引和整理都应给用户一个可见结果，但预览与持久产物分开处理。
+```text
+python scripts/preview_pack.py markdown \
+  --preview-index .cloud-photo/organize/preview/preview-index.json \
+  --output .cloud-photo/organize/preview/gallery-01.md
+```
 
-## 推荐组件
+4. 读取 `gallery-01.md`，把其中的 Markdown 原样放入回复；文件名和云盘路径放在图片下方。
+5. 需要统计或计划卡片时，再加载 `visualize` Skill 并调用一次 `show_widget`。图片展示和状态卡分开。
+6. 用 `nexus.deliver_files` 交付 manifest、checkpoint、报告和完整 contact sheet；文件卡片不能代替正文图片。
 
-### 图片网格 / contact sheet：第一视觉内容
+## 失败处理
 
-检索或整理结果先展示实际原图；候选很多时按批次展示。contact sheet 只做总览。每格以图片为主，文件名只作短 caption；路径、标签和状态放到展开详情或图片下方。没有实际图片时不能用文件名 chip 代替，必须先补取原图或报告预览失败。
+如果工作区图片 URL 无法取得，先报告图片预览未完成并重新物化/检查图片；不能用文件名列表、文件卡片或“已生成 contact sheet”冒充图片已展示。停止中转服务或清理 `/tmp` 不应影响已经落盘的 `.cloud-photo/` 图片。
 
-预览图片必须先物化到 workspace 的 `.cloud-photo/` 持久目录并做存在性检查；只存在于 `/tmp` 的文件不能直接作为预览依赖。
-
-最终回复还要做图片体积检查：原图用于按需查看，widget 内嵌降采样预览；预览组过大时拆批或降低尺寸/质量，不能把原图 base64 直接塞进组件。
-
-本地绝对路径不能直接写成 Markdown 图片链接。必须先用图片读取/原生媒体附件能力把文件内容交给对话客户端；否则会出现空白区域或破损图片图标。
-
-同样不能把 `localhost`、`127.0.0.1` 或 workspace 本地 HTTP 服务地址写进 widget。它们只在 Agent 进程所在主机可见，客户端无法加载。
-
-本地 HTTP 服务可以短暂用于生成或调试，但不能把它的 `localhost`/`127.0.0.1` 地址放进 `show_widget`。图片必须先落盘到当前 workspace 的 `.cloud-photo/`，再以内嵌且有大小上限的 `data:image/...` 放入自包含可视化，或由图片读取工具返回原生图片附件；服务停止、端口失效或临时目录清理不能让已经交付的预览失效。`deliver_files` 只能提供持久化文件卡片，不能代替正文中的图片附件。
-
-推荐用 `scripts/preview_pack.py widget` 把 `preview-index.json` 中的持久化小图打包为一个受载荷上限约束的自包含 HTML fragment，再把 fragment 原样交给已加载 `visualize` Skill 的 `show_widget`。该命令每次只生成一个 contact sheet（最多 6 张），按实际编码后的图片 payload 和完整 UTF-8 字节数校验；下一张 sheet 用 `--sheet-offset 1`、`2` 等继续生成，超出部分留给后续批次或原生图片附件。它不会启动服务，也不会在 fragment 中留下工作区路径。
-
-`preview-index.json` 中的相对图片路径按索引文件所在目录解析，因此从另一工作目录生成 widget 也不会丢图。内嵌图片使用 eager 加载；`show_widget` 返回 accepted 仍只代表载荷被接收，仍应通过原生图片附件或客户端可见结果确认实际渲染。
-
-### `show_widget`：visualize Skill 的即时状态和计划预览
-
-加载 `visualize` Skill 后调用 Nexus 内置 `show_widget`，生成一个自包含、只读的 HTML fragment，适合展示：
-
-- 当前扫描阶段：发现、缩略图标签、视觉标签、上传索引
-- 已完成、partial、error 的数量
-- 三类标签的统计和示例
-- 整理模式的候选照片、目标相簿/目录和拟执行动作
-- “等待确认”的整理计划
-
-这个 widget 只负责当前回复的视觉展示，不保存状态，也不直接调用云盘。所有按钮只能改变 widget 内的筛选或展开状态，不能绕过 `cm-cloud-manage` 的确认流程。
-
-### `nexus.deliver_files`：交付可追溯文件
-
-把 `manifest-<scan_id>.jsonl`、`checkpoint-<scan_id>.json` 和 `report-<scan_id>.json` 登记为当前轮次的 deliverable artifact。用户可以从对话产物入口打开或下载；这比把完整 JSONL 贴进消息更适合大索引。
-
-### 图片附件 / contact sheet：查看真实样本
-
-需要证明视觉标签确实对应照片时，必须展示少量代表性缩略图：
-
-- 优先将缩略图物化到当前 workspace 后作为图片附件交付。
-- 如果需要一张总览图，生成带短文件名 caption、目标相簿/目录和主要标签的 contact sheet，再作为图片附件直接展示；`asset_id` 不放在用户可见 caption 中。
-- 整理结果按“候选 → 目标 → 状态”展示；完整字段和链接放入整理报告。
-- 不把一万张原图放进一次消息，也不把带权限的临时云盘 URL 直接塞进 widget；临时 URL 过期或 iframe 无法携带账号授权时，由 cloud-access 使用内部文件引用重新取得图片。
-
-## 推荐的索引完成回复
-
-同一条回复应按以下顺序包含：
-
-1. contact sheet 或实际缩略图网格（先让用户看到图）。
-2. 一句文字总结（扫描范围和状态）。
-3. 加载 `visualize` Skill 后调用一次 `show_widget`：进度、标签分布、一个批次的图片候选和详情。
-4. `nexus.deliver_files`：manifest、checkpoint、报告和完整 contact sheet。
-
-`show_widget` 的工具回执只表示已接受，不证明客户端已经渲染；文字结果仍必须给出可核对的状态和文件产物链接。
-
-如果没有实际的 `show_widget` 调用和回执，不能只根据“已生成 base64/contact sheet”声称预览完成。用户中断、payload 过大或组件调用失败时，应明确标记预览未完成并重新发起小批次渲染。不要手工读取或生成 `sheets_b64.txt`，也不要用三次连续 `show_widget` 代替批次控制。
+整理结果按“图片 → 一句结论 → 路径/标签/状态”的顺序展示。用户可见内容不显示 `file_id`；稳定云盘链接只有在实际返回且仍有效时才提供。
