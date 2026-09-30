@@ -75,6 +75,28 @@ def cmd_merge(args):
     records = sorted(merged.values(), key=lambda r: r["asset_id"]); write_manifest(pathlib.Path(args.output), records)
     print(json.dumps({"manifest": args.output, "records": len(records), "replaced": len(delta)}, ensure_ascii=False))
 
+def cmd_mode_detect(args):
+    text = args.text
+    index_words = ("索引", "扫描", "打标签", "建立照片库", "更新索引")
+    organize_words = ("整理", "归类", "移动", "归档", "创建相册", "放到相册", "重命名")
+    has_index = any(word in text for word in index_words)
+    has_organize = any(word in text for word in organize_words)
+    mode = "index" if has_index and not has_organize else "organize" if has_organize else "search"
+    prerequisite = mode == "organize" and has_index
+    print(json.dumps({"mode": mode, "index_prerequisite": prerequisite, "write_operations": False}, ensure_ascii=False))
+
+def cmd_plan(args):
+    records = read_manifest(pathlib.Path(args.manifest)); wanted = terms(args.query)
+    if not wanted: fail("query must contain at least one term")
+    hits = []
+    for record in records:
+        hay = searchable(record); score = sum(hay.count(term) for term in wanted)
+        if score: hits.append((score, record))
+    hits.sort(key=lambda pair: (-pair[0], pair[1]["asset_id"]))
+    candidates = [{"asset_id": r["asset_id"], "source_ref": r["source_ref"], "file_metadata": r["file_metadata"]} for _, r in hits[:args.limit]]
+    actions = [{"asset_id": item["asset_id"], "action": "review_then_apply", "target": args.target} for item in candidates]
+    print(json.dumps({"mode": "organize", "query": args.query, "target": args.target, "candidates": candidates, "proposed_actions": actions, "needs_confirmation": True}, ensure_ascii=False, indent=2))
+
 def cmd_dependency_status(args):
     path = pathlib.Path(args.path)
     meta = path / "_meta.json"
@@ -100,6 +122,8 @@ def main():
     p = sub.add_parser("init"); p.add_argument("--output", required=True); p.add_argument("--force", action="store_true"); p.set_defaults(func=cmd_init)
     p = sub.add_parser("validate"); p.add_argument("manifest"); p.set_defaults(func=cmd_validate)
     p = sub.add_parser("merge"); p.add_argument("--base", required=True); p.add_argument("--delta", required=True); p.add_argument("--output", required=True); p.set_defaults(func=cmd_merge)
+    p = sub.add_parser("mode-detect"); p.add_argument("--text", required=True); p.set_defaults(func=cmd_mode_detect)
+    p = sub.add_parser("plan"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--target", required=True); p.add_argument("--limit", type=int, default=20); p.set_defaults(func=cmd_plan)
     p = sub.add_parser("dependency-status"); p.add_argument("--path", required=True); p.add_argument("--expected"); p.set_defaults(func=cmd_dependency_status)
     p = sub.add_parser("search"); p.add_argument("manifest"); p.add_argument("--query", required=True); p.add_argument("--limit", type=int, default=20); p.set_defaults(func=cmd_search)
     args = parser.parse_args()
