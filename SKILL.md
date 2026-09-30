@@ -42,9 +42,11 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 ## 配套工具
 
 ```text
+python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py search .cloud-photo/manifest.jsonl --query "猫 户外"
+python scripts/cloud_photo.py plan .cloud-photo/manifest.jsonl --query "猫" --target "猫相册"
 python scripts/cloud_photo.py merge --base old.jsonl --delta batch.jsonl --output manifest.jsonl
 ```
 
