@@ -58,9 +58,12 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 1. `cm-cloud-manage` 输出云盘文件清单 JSONL。
 2. `index_runner.py ingest` 过滤非图片并生成 pending manifest。
-3. `index_runner.py batch` 生成有界批次；宿主按批次取得图片或缩略图。
-4. 多模态模型返回三类标签 JSONL，`index_runner.py apply` 合并并更新状态。
-5. `report` 生成进度，供 `show_widget` 实时展示；每批都可以独立上传和恢复。
+3. `index_runner.py batch` 生成有界批次、下载请求和下一批游标；宿主按批次取得图片或缩略图。
+4. 宿主把下载结果交给 `index_runner.py run-batch`，由 runner 校验文件并生成缩略图任务清单。
+5. 多模态模型返回三类标签 JSONL，`index_runner.py apply` 合并并更新 manifest/checkpoint。
+6. `report` 生成进度，供 `show_widget` 实时展示；每批都可以独立上传和恢复。
+
+索引模式必须优先使用 `index_runner.py`。如果 runner 已覆盖当前步骤，不得临时创建新的全量扫描、批次合并或 checkpoint 脚本；临时脚本只能处理尚未覆盖的云盘适配边界，并且结果必须回交 runner。
 
 云盘登录、清单读取和图片取得仍由 `cm-cloud-manage` 完成；runner 不读取凭据，也不直接请求云盘 API。
 
@@ -69,6 +72,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 ```text
 python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .cloud-photo
 python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
+python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
 python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
 python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl

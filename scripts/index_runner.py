@@ -34,6 +34,20 @@ def atomic_jsonl(path: pathlib.Path, rows):
         raise
 
 
+def atomic_json(path: pathlib.Path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+    try:
+        with open(fd, "w", encoding="utf-8") as fh:
+            json.dump(value, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+            fh.flush()
+        pathlib.Path(tmp).replace(path)
+    except Exception:
+        pathlib.Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def read_jsonl(path: pathlib.Path):
     if not path.exists(): fail(f"file not found: {path}")
     rows = []
@@ -54,6 +68,41 @@ def read_manifest(path: pathlib.Path):
         if not isinstance(row.get("index_state"), dict): fail(f"missing index_state: {asset_id}")
         if row["index_state"].get("status") not in STATUSES: fail(f"invalid status: {asset_id}")
     return rows
+
+
+def checkpoint_path(manifest_path: pathlib.Path):
+    return manifest_path.parent / "checkpoint.json"
+
+
+def update_checkpoint(manifest_path: pathlib.Path, *, batch_id=None, applied_ids=()):
+    rows = read_manifest(manifest_path)
+    counts = {status: 0 for status in STATUSES}
+    for row in rows:
+        counts[row["index_state"]["status"]] += 1
+    path = checkpoint_path(manifest_path)
+    checkpoint = {}
+    if path.exists():
+        try:
+            checkpoint = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            fail(f"invalid checkpoint: {path}: {exc.msg}")
+    checkpoint.update({
+        "schema_version": SCHEMA,
+        "updated_at": now(),
+        "total": len(rows),
+        "pending": counts["pending"],
+        "completed": counts["complete"],
+        "partial": counts["partial"],
+        "error": counts["error"],
+    })
+    if batch_id:
+        checkpoint["last_batch_id"] = batch_id
+        checkpoint["last_batch_at"] = checkpoint["updated_at"]
+    if applied_ids:
+        prior = checkpoint.get("processed_asset_ids", [])
+        checkpoint["processed_asset_ids"] = sorted(set(prior).union(applied_ids))
+    atomic_json(path, checkpoint)
+    return checkpoint
 
 
 def listing_value(item, *keys):
@@ -97,7 +146,7 @@ def cmd_ingest(args):
     rows.sort(key=lambda row: row["asset_id"])
     atomic_jsonl(output / "manifest.jsonl", rows)
     checkpoint = {"schema_version": SCHEMA, "scan_id": args.scan_id, "updated_at": now(), "scope": args.scope, "total": len(rows), "pending": len(rows), "completed": 0, "partial": 0, "error": 0, "skipped": skipped}
-    (output / "checkpoint.json").write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_json(output / "checkpoint.json", checkpoint)
     print(json.dumps({"manifest": str(output / "manifest.jsonl"), "records": len(rows), "skipped": skipped, "scan_id": args.scan_id}, ensure_ascii=False))
 
 
@@ -105,9 +154,58 @@ def cmd_batch(args):
     rows = read_manifest(pathlib.Path(args.manifest)); selected = [r for r in rows if r["index_state"]["status"] in set(args.statuses.split(","))]
     selected = selected[args.offset:args.offset + args.limit]
     if not selected: print(json.dumps({"count": 0, "message": "no pending records"}, ensure_ascii=False)); return
+    batch_id = args.batch_id or f"batch-{args.offset:06d}-{args.offset + len(selected) - 1:06d}"
     if args.output:
         atomic_jsonl(pathlib.Path(args.output), selected)
-    print(json.dumps({"count": len(selected), "asset_ids": [r["asset_id"] for r in selected], "output": args.output}, ensure_ascii=False))
+    request = {
+        "schema_version": SCHEMA,
+        "batch_id": batch_id,
+        "count": len(selected),
+        "assets": [{"asset_id": r["asset_id"], "source_ref": r["source_ref"], "path": r["source_ref"].get("path", "")} for r in selected],
+        "next_offset": args.offset + len(selected),
+    }
+    if args.request_output:
+        atomic_json(pathlib.Path(args.request_output), request)
+    print(json.dumps({"count": len(selected), "batch_id": batch_id, "asset_ids": [r["asset_id"] for r in selected], "output": args.output, "request_output": args.request_output, "next_offset": request["next_offset"]}, ensure_ascii=False))
+
+
+def cmd_run_batch(args):
+    """Close one externally downloaded batch without making cloud/API calls."""
+    manifest_path = pathlib.Path(args.manifest)
+    rows = read_manifest(manifest_path)
+    by_id = {r["asset_id"]: r for r in rows}
+    batch_rows = read_jsonl(pathlib.Path(args.batch))
+    batch_ids = [r.get("asset_id") for r in batch_rows]
+    if any(asset_id not in by_id for asset_id in batch_ids):
+        fail("batch contains an asset_id not present in manifest")
+    downloads = read_jsonl(pathlib.Path(args.downloads)) if args.downloads else []
+    download_by_id = {}
+    for item in downloads:
+        asset_id = item.get("asset_id")
+        if asset_id not in batch_ids:
+            fail(f"download result is outside batch: {asset_id}")
+        if asset_id in download_by_id:
+            fail(f"duplicate download result: {asset_id}")
+        download_by_id[asset_id] = item
+    ready = []
+    missing = []
+    for asset_id in batch_ids:
+        item = download_by_id.get(asset_id)
+        local_path = item.get("local_path") if item else None
+        if item and item.get("status", "ready") in {"ready", "downloaded", "complete"} and local_path and pathlib.Path(local_path).exists():
+            ready.append({"asset_id": asset_id, "local_path": local_path, "path": by_id[asset_id]["source_ref"].get("path", "")})
+        else:
+            missing.append(asset_id)
+    out_dir = pathlib.Path(args.output_dir or manifest_path.parent / "batches" / (args.batch_id or "current"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atomic_jsonl(out_dir / "thumbnail_tasks.jsonl", ready)
+    if args.labels:
+        apply_args = argparse.Namespace(manifest=str(manifest_path), labels=args.labels, report=args.report, batch_id=args.batch_id, output=None)
+        cmd_apply(apply_args)
+    else:
+        update_checkpoint(manifest_path, batch_id=args.batch_id)
+    result = {"batch_id": args.batch_id, "batch_count": len(batch_ids), "ready": len(ready), "missing": missing, "thumbnail_tasks": str(out_dir / "thumbnail_tasks.jsonl"), "next_step": "generate labels JSONL and run apply" if not args.labels else "batch applied"}
+    print(json.dumps(result, ensure_ascii=False))
 
 
 def cmd_apply(args):
@@ -126,6 +224,7 @@ def cmd_apply(args):
         elif "vision_tags" in label or "thumbnail_tags" in label: row["index_state"]["status"] = "complete"
         row["index_state"]["updated_at"] = now(); applied += 1
     atomic_jsonl(manifest_path, sorted(by_id.values(), key=lambda r: r["asset_id"]))
+    update_checkpoint(manifest_path, batch_id=getattr(args, "batch_id", None), applied_ids=[label.get("asset_id") for label in labels if label.get("asset_id") in by_id])
     cmd_report(argparse.Namespace(manifest=str(manifest_path), output=args.report))
     print(json.dumps({"applied": applied, "unknown_asset_ids": unknown, "manifest": str(manifest_path)}, ensure_ascii=False))
 
@@ -134,7 +233,7 @@ def cmd_report(args):
     rows = read_manifest(pathlib.Path(args.manifest)); counts = {status: 0 for status in STATUSES}
     for row in rows: counts[row["index_state"]["status"]] += 1
     report = {"schema_version": SCHEMA, "generated_at": now(), "manifest": str(args.manifest), "total": len(rows), "counts": counts}
-    if args.output: pathlib.Path(args.output).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.output: atomic_json(pathlib.Path(args.output), report)
     print(json.dumps(report, ensure_ascii=False))
 
 
@@ -144,9 +243,11 @@ def main():
     p = sub.add_parser("ingest", help="convert cm-cloud file listing JSONL into a manifest")
     p.add_argument("--input", required=True); p.add_argument("--output-dir", required=True); p.add_argument("--scope", default="cloud"); p.add_argument("--provider", default="cm-cloud-manage"); p.add_argument("--scan-id", default="scan-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S")); p.add_argument("--include-non-images", action="store_true"); p.set_defaults(func=cmd_ingest)
     p = sub.add_parser("batch", help="select a deterministic resumable batch")
-    p.add_argument("--manifest", required=True); p.add_argument("--output"); p.add_argument("--offset", type=int, default=0); p.add_argument("--limit", type=int, default=32); p.add_argument("--statuses", default="pending,partial,error"); p.set_defaults(func=cmd_batch)
+    p.add_argument("--manifest", required=True); p.add_argument("--output"); p.add_argument("--request-output"); p.add_argument("--batch-id"); p.add_argument("--offset", type=int, default=0); p.add_argument("--limit", type=int, default=32); p.add_argument("--statuses", default="pending,partial,error"); p.set_defaults(func=cmd_batch)
+    p = sub.add_parser("run-batch", help="verify an externally downloaded batch and advance checkpoint")
+    p.add_argument("--manifest", required=True); p.add_argument("--batch", required=True); p.add_argument("--downloads"); p.add_argument("--labels"); p.add_argument("--batch-id"); p.add_argument("--output-dir"); p.add_argument("--report"); p.set_defaults(func=cmd_run_batch)
     p = sub.add_parser("apply", help="merge validated thumbnail/vision labels")
-    p.add_argument("--manifest", required=True); p.add_argument("--labels", required=True); p.add_argument("--report"); p.set_defaults(func=cmd_apply)
+    p.add_argument("--manifest", required=True); p.add_argument("--labels", required=True); p.add_argument("--report"); p.add_argument("--batch-id"); p.set_defaults(func=cmd_apply)
     p = sub.add_parser("report", help="summarize manifest progress")
     p.add_argument("--manifest", required=True); p.add_argument("--output"); p.set_defaults(func=cmd_report)
     args = parser.parse_args()
