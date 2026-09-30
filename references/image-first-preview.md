@@ -21,8 +21,8 @@ python scripts/preview_pack.py markdown \
 
 ## 组件边界
 
-- `show_widget` 只用于结构化状态、统计、标签分布和整理计划。不要把照片 Base64、workspace 路径或本机服务地址塞进 widget。
-- 禁止 `file://`、绝对路径、`localhost`、`127.0.0.1`、固定端口中转服务、临时 URL 和手工 Base64。模型不应读取或复制图片二进制。
+- `show_widget` 若需要承载照片，必须使用 `preview_server.py` 的共享 relay URL 和 `preview_pack.py widget --image-base-url ... --image-token ...`；不要把照片 Base64 或绝对 workspace 路径塞进 widget。relay 的 `state-dir` 要持久化，多个对话复用同一个 `service-id`，每个对话只使用自己的 `session-id` 和 token。
+- 禁止 `file://`、绝对路径、未受管理的 `localhost`/`127.0.0.1`、固定端口中转服务、临时 URL 和手工 Base64。不要用 `pkill` 或任意 `http.server`，不要在一个会话结束时停止仍有其他会话使用的共享 relay，也不要在任务完成后自动执行 `stop-service`。
 - `nexus.deliver_files` 用于交付 manifest、报告和预览文件，不能代替当前回复中的 Markdown 图片。
 
 ## 检查清单

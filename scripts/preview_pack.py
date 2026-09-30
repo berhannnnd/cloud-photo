@@ -3,10 +3,11 @@
 
 The default ``markdown`` command emits short workspace-relative Markdown image
 links. Nexus resolves those links through its authenticated workspace preview
-endpoint, so the model does not copy image bytes and no sidecar HTTP service is
-needed. The legacy ``widget`` command remains available only for an explicitly
-requested self-contained visualize fragment; normal photo replies must use
-``markdown``.
+endpoint, so the model does not copy image bytes. The ``widget`` command is
+available when a caller has registered the workspace with the shared
+``preview_server.py`` relay; it emits short token-protected URLs rather than
+embedding image bytes. Legacy inline data URLs remain only as a compatibility
+fallback when no relay arguments are supplied.
 """
 from __future__ import annotations
 
@@ -211,14 +212,20 @@ def image_data_url(path: pathlib.Path) -> str:
     return f"data:{mime};base64,{encoded}"
 
 
-def build_widget(args):
-    """Write one bounded, self-contained visualize/show_widget HTML fragment.
+def relay_image_url(path: pathlib.Path, *, base_url: str, token: str, workspace_root: pathlib.Path) -> str:
+    relative = workspace_relative_path(path, workspace_root)
+    encoded = quote(relative, safe="/._-~")
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url.rstrip('/')}/{encoded}{separator}token={quote(token, safe='')}"
 
-    The fragment embeds bounded preview sheets as data URLs. It never points
-    at workspace paths, localhost, or a temporary HTTP service, so it remains
-    renderable after the source process exits. Nexus rejects ``widget_code``
-    over 256 KiB UTF-8 or inline image data over 192 KiB; the limits here are
-    enforced before the fragment reaches ``show_widget``.
+
+def build_widget(args):
+    """Write one bounded visualize/show_widget HTML fragment.
+
+    With ``--image-base-url`` the fragment contains short authenticated relay
+    URLs and never contains image bytes. Without it, the legacy data-URL mode
+    remains available for compatibility but should not be used for photo
+    galleries in Nexus.
     """
     index = read_preview_index(pathlib.Path(args.preview_index))
     index_path = pathlib.Path(args.preview_index).resolve()
@@ -228,6 +235,8 @@ def build_widget(args):
         fail("max-total-bytes, max-widget-bytes and max-items must be positive")
     if args.sheet_offset < 0:
         fail("sheet-offset must be non-negative")
+    if bool(args.image_base_url) != bool(args.image_token):
+        fail("image-base-url and image-token must be provided together")
     output = pathlib.Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     cards = []
@@ -237,6 +246,16 @@ def build_widget(args):
     sheets = index["sheets"]
     if args.sheet_offset >= len(sheets):
         fail(f"sheet-offset {args.sheet_offset} is outside the preview index ({len(sheets)} sheets)")
+    workspace_root = pathlib.Path(args.workspace_root).resolve() if args.workspace_root else None
+    if workspace_root is None:
+        for parent in (index_path, *index_path.parents):
+            if parent.name == ".cloud-photo":
+                workspace_root = parent.parent
+                break
+    if args.image_base_url and workspace_root is None:
+        fail("workspace-root is required for relay URLs")
+    if workspace_root is None and any(not pathlib.Path(str(sheet.get("path", ""))).is_absolute() for sheet in sheets):
+        fail("workspace-root is required for relative preview paths")
     selected_sheets = sheets[args.sheet_offset:args.sheet_offset + args.max_sheets]
     skipped = max(0, len(sheets) - args.sheet_offset - len(selected_sheets))
     for number, sheet in enumerate(selected_sheets, start=args.sheet_offset + 1):
@@ -245,6 +264,8 @@ def build_widget(args):
             skipped += 1
             continue
         path = resolve_path(raw_path, base_dir=index_path.parent)
+        if not path.is_absolute():
+            path = workspace_root / path
         size = path.stat().st_size if path.exists() else 0
         count = int(sheet.get("count") or 0)
         if count > args.max_items:
@@ -254,16 +275,23 @@ def build_widget(args):
         if not size:
             skipped += 1
             continue
-        data_url = image_data_url(path)
-        # Count the actual serialized UTF-8 payload, not the JPEG bytes. The
-        # base64 expansion and the data URL prefix are part of widget_code.
-        encoded_size = len(data_url.encode("utf-8"))
+        if args.image_base_url:
+            image_src = relay_image_url(
+                path,
+                base_url=args.image_base_url,
+                token=args.image_token,
+                workspace_root=workspace_root,
+            )
+            encoded_size = len(image_src.encode("utf-8"))
+        else:
+            image_src = image_data_url(path)
+            encoded_size = len(image_src.encode("utf-8"))
         if used + encoded_size > args.max_total_bytes:
             skipped += 1
             continue
         cards.append(
             '<figure><img loading="eager" decoding="async" src="%s" alt="照片预览第 %d 组"><figcaption>第 %d 组 · %d 张</figcaption></figure>'
-            % (data_url, number, number, count)
+            % (image_src, number, number, count)
         )
         selected_counts.append(count)
         used += encoded_size
@@ -271,7 +299,7 @@ def build_widget(args):
         fail("no preview sheets fit the widget size budget")
     note = ""
     if skipped:
-        note = '<p class="note">已展示 %d 组预览；另有 %d 组因可视化大小上限未嵌入，请按批次继续展示。</p>' % (len(cards), skipped)
+        note = '<p class="note">已展示 %d 组预览；另有 %d 组请按批次继续展示。</p>' % (len(cards), skipped)
     fragment = """<style>
 #cloud-photo-preview{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--nexus-text,#222)}
 #cloud-photo-preview .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
@@ -298,6 +326,7 @@ def build_widget(args):
         "skipped": skipped,
         "image_payload_bytes": used,
         "widget_bytes": widget_bytes,
+        "transport": "loopback-relay" if args.image_base_url else "legacy-inline-data-url",
         "limits": {
             "max_items": args.max_items,
             "max_total_bytes": args.max_total_bytes,
@@ -390,9 +419,12 @@ def main():
                    help="zero-based contact-sheet offset for the next bounded widget (default: 0)")
     p.add_argument("--max-items", type=int, default=6)
     p.add_argument("--max-total-bytes", type=int, default=192 * 1024,
-                   help="hard ceiling for serialized image data URLs (default: 192 KiB)")
+                   help="hard ceiling for serialized image sources in widget_code (default: 192 KiB)")
     p.add_argument("--max-widget-bytes", type=int, default=256 * 1024,
                    help="hard ceiling for complete UTF-8 widget_code (default: 256 KiB)")
+    p.add_argument("--image-base-url", help="loopback relay base URL, e.g. http://127.0.0.1:12345")
+    p.add_argument("--image-token", help="per-session relay token")
+    p.add_argument("--workspace-root", help="workspace root; inferred from .cloud-photo when relay is used")
     p.set_defaults(func=build_widget)
     p = sub.add_parser("markdown", help="Create one native Nexus workspace image gallery")
     p.add_argument("--preview-index", required=True)

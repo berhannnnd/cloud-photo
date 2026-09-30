@@ -6,5 +6,6 @@
 - 标签固定为文件元数据、缩略图派生标签、多模态视觉标签。
 - 原始照片留在云盘；工作区 `.cloud-photo/` 保存可恢复的 JSONL 索引和 checkpoint。
 - 中国移动云盘访问由外部 `cm-cloud-manage` 提供。
+- 使用 `show_widget` 展示图片时由 `scripts/preview_server.py` 提供共享、按会话 token 隔离的 loopback relay；服务默认常驻，不使用 Base64，只有用户明确要求关闭时才停止。
 
 详见 [SKILL.md](SKILL.md)。

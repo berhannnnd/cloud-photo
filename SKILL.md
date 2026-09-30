@@ -11,11 +11,13 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 ## 对话内图片展示（必须遵守）
 
-照片展示默认走 Nexus 原生工作区 Markdown 图片链路，不走 `show_widget` 的 Base64。`preview_pack.py markdown` 会生成短的 `![文件名](.cloud-photo/...)` 画廊；Nexus 会把这些工作区相对路径解析为带权限的 inline preview URL。模型只传路径和短 caption，不读取或复制图片二进制，因此不会出现 Base64 被插入、截断或把模型轮次拖死的问题。
+照片展示默认走 Nexus 原生工作区 Markdown 图片链路，不把图片字节放进模型上下文。`preview_pack.py markdown` 会生成短的 `![文件名](.cloud-photo/...)` 画廊；Nexus 会把这些工作区相对路径解析为带权限的 inline preview URL。
 
-`show_widget` 只用于数量、标签统计、整理计划等结构化状态。它不是图片文件服务器，也不会替 Agent 启动或托管 `http.server`；调用成功只表示 HTML fragment 被接收，不能证明 iframe 中的图片已加载。照片结果不能把 `show_widget` 当作主要图片展示通道。
+如果当前对话需要使用 Nexus `visualize`/`show_widget` 组件展示图片，必须先使用本 Skill 的共享 loopback relay，再用 `preview_pack.py widget --image-base-url ... --image-token ...` 生成 HTML。relay 只传短的受 token 保护的图片 URL，不把图片编码成 Base64；`show_widget` 接收成功仍不等于图片已渲染，必须确认图片实际出现后才算完成。
 
-照片预览文件必须落在当前 workspace 的 `.cloud-photo/` 下，并由 Markdown 画廊逐张引用。禁止使用 `file://`、`localhost`、`127.0.0.1`、绝对路径、`/tmp` 路径或手工 Base64。不要通过固定端口和 `pkill` 管理预览服务；切换会话或停止中转服务不能影响已经落盘的图片。若工作区图片 URL 无法取得，必须报告“图片预览未完成”，不能用文件名或交付文件卡片代替。
+每个稳定的 workspace 或 owner 使用一个持久 `state-dir` 和 `service-id`。每个对话只生成自己的 `session-id`，调用 `preview_server.py start` 时先复用已经运行的共享服务，再向同一端口注册一个独立 token；不要为每个对话重复起端口。服务默认常驻：任务完成、回复结束或组件渲染成功后都不能顺手关闭服务。一个会话执行 `stop` 只注销自己，不能停止仍被其他对话使用的服务；`stop-service` 只能在用户明确要求关闭服务、确认没有活动会话，并额外传入 `--confirm-close` 时执行。state-dir 必须落在持久工作区或 owner 状态目录，不能放在 `/tmp`。
+
+禁止使用 `file://`、未受本 Skill 管理的 `localhost`/`127.0.0.1` 服务、绝对路径、临时下载 URL 或手工 Base64。不要使用固定端口、全局 `pkill` 或任意 `http.server`。relay 能防止不同会话误用彼此的 token 和 workspace，但同一操作系统用户仍可以故意终止进程；Skill 不能把普通用户进程变成安全边界。若服务失效，先用 `status`，再用相同 `service-id` 和新的会话参数调用 `start` 恢复；不能杀掉未知进程。若工作区图片 URL 无法取得，必须报告“图片预览未完成”，不能用文件名或交付文件卡片代替。
 
 这是一个顶层 Skill，安装后同时提供三个协作模块：
 
@@ -48,7 +50,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
 3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
 4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：先用 `preview_pack.py markdown` 生成每批一个、包含最多 6 张照片的紧凑工作区图片画廊并把画廊内容放入回复；需要统计或计划卡片时再加载 `visualize` Skill 调用一次 `show_widget`，最后用 `nexus.deliver_files` 交付清单和报告。
+5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：优先用 `preview_pack.py markdown` 生成每批一个、包含最多 6 张照片的紧凑工作区图片画廊；若使用 `visualize`/`show_widget` 展示图片，先按共享 relay 流程注册会话并生成 relay URL，确认实际渲染后再用 `nexus.deliver_files` 交付清单和报告。
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
@@ -58,13 +60,13 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 
 1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并让用户能打开真实原图；回复主体必须按分类使用经过尺寸和 payload 检查的图片预览。候选过多时按类别和批次展示，contact sheet 只作总览附件。
 2. 用普通文字给出真实数量和状态。
-3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批生成一张最多包含 6 张照片的 contact sheet；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。文件名作为短 caption，识别标签、原路径、目标相簿/目录和执行状态放在图片下方；不要把图片 Base64 读入上下文。
-4. 用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
+3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批生成一张最多包含 6 张照片的 contact sheet；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。若必须使用 `show_widget`，先运行一次共享 relay `start`，把输出的 `url`、`token` 和 `session_id` 传给 `preview_pack.py widget`；不要把图片 Base64 读入上下文。
+4. 组件实际显示图片后不要自动关闭服务，也不要在任务收尾时顺手执行 `stop-service`；共享服务和当前 session 可以留给其他对话复用。只有用户明确要求注销当前 session 时才执行 `stop`，只有用户明确要求关闭服务时才执行 `stop-service --confirm-close`。用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
 
 只有回复中实际出现可解析的工作区 Markdown 图片，或收到平台原生图片附件后，才算完成预览；仅生成 contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止读取或拼接任何 `.b64`/`sheets_b64.txt` 文件。
 5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。若一个批次超过 6 张，先用 `--sheet-offset` 生成下一批画廊，不要连续调用多个 `show_widget`。
 
-不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
+不要把 `yun.139.com` 登录页面嵌入 `show_widget`。widget 只承载已经落盘的静态预览和轻量状态，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
 
 ## 可执行索引流水线
 
@@ -89,6 +91,9 @@ python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --ou
 python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
 python scripts/preview_pack.py build --items .cloud-photo/organize/candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/organize/preview
 python scripts/preview_pack.py markdown --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/gallery-01.md
+# show_widget 图片模式：start 的 JSON 中读取 url/token/session_id 后执行
+python scripts/preview_server.py start --root "$WORKSPACE" --state-dir "$WORKSPACE/.cloud-photo/runtime/relay" --service-id cloud-photo --session-id "$SESSION_ID"
+python scripts/preview_pack.py widget --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/widget.html --image-base-url "$RELAY_URL" --image-token "$RELAY_TOKEN" --workspace-root "$WORKSPACE"
 # 下一批使用 --sheet-offset 1、2…；把生成的 gallery-02.md 原样放入回复
 python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
 python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
