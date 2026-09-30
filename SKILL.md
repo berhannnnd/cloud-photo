@@ -40,6 +40,18 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
+## Nexus 对话内展示流程
+
+索引或整理完成后，必须把“做了什么”和“哪些图片对应哪些结果”展示在当前对话中：
+
+1. 用普通文字给出真实数量和状态。
+2. 调用 Nexus 内置 `show_widget`，展示候选照片、识别标签、原路径、目标相簿/目录和执行状态；widget 只做本地筛选/展开，不执行云盘写操作。
+3. 将实际处理的照片生成 contact sheet，作为图片附件直接展示；需要细看时再附少量原图缩略图。
+4. 用 `nexus.deliver_files` 交付整理报告、manifest 和 checkpoint。
+5. 对每张图片优先展示稳定云盘链接；没有稳定链接时展示云盘路径和 `file_id`，不伪造 URL。
+
+不要把 `yun.139.com` 登录页面嵌入 `show_widget`。`show_widget` 只承载静态结果预览，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
+
 ## 配套工具
 
 ```text
