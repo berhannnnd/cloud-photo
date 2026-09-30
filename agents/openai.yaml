@@ -1,0 +1,4 @@
+interface:
+  display_name: Cloud Photo
+  short_description: 建立照片索引并快速检索云盘相册
+  default_prompt: 使用 Cloud Photo 索引云盘照片，或根据自然语言检索照片。

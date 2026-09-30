@@ -1,0 +1,4 @@
+name: cloud-access
+role: cloud-provider-boundary
+entrypoint: references/cloud-access.md
+upstream_skill: cm-cloud-manage

@@ -1,0 +1,4 @@
+name: photo-index
+role: manifest-builder
+entrypoint: references/photo-index.md
+manifest_schema: references/manifest-schema.md
