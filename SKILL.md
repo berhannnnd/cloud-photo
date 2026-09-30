@@ -36,7 +36,7 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
 3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
 4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md)：用 `show_widget` 展示状态/计划，用 `nexus.deliver_files` 交付清单和报告，必要时附少量缩略图。
+5. 索引或整理完成后读取 [preview.md](references/preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：用 `show_widget` 展示状态/计划，用 contact sheet 展示实际图片，用 `nexus.deliver_files` 交付清单和报告。
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
