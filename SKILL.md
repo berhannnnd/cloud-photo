@@ -54,6 +54,8 @@ description: 在云盘中建立可持续更新的照片索引，或根据用户�
 6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
 7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
 
+大规模相册的上下文边界、三类索引信息和实测召回流程见 [photo-retrieval-at-scale.md](references/photo-retrieval-at-scale.md)。
+
 ## Nexus 对话内展示流程
 
 索引或整理完成后，必须把“做了什么”和“哪些图片对应哪些结果”展示在当前对话中：

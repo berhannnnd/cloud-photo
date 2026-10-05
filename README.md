@@ -8,4 +8,6 @@
 - 中国移动云盘访问由外部 `cm-cloud-manage` 提供。
 - 使用 `show_widget` 展示图片时由 `scripts/preview_server.py` 提供共享、按会话 token 隔离的 loopback relay；服务默认常驻，不使用 Base64，只有用户明确要求关闭时才停止。
 
+整体的上下文边界、三类索引信息、检索流程和 500 张照片实测记录见 [大规模照片索引与召回说明](references/photo-retrieval-at-scale.md)。
+
 详见 [SKILL.md](SKILL.md)。
