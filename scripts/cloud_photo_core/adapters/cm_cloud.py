@@ -67,14 +67,45 @@ class Cloud:
             raise ValueError('CLI exit status conflicts with receipt')
         return receipt
 
-    def capability(self, command):
+    def capability(self, command, params=None):
         if not self.discovered:
             discovery = self.call('cli', 'capabilities')
             if discovery['status'] != 'SUCCESS':
                 raise ValueError('provider capability discovery failed')
             self.discovered = True
         result = self.call('cli', 'schema', {'command-id': command})
-        if result['status'] != 'SUCCESS' or str((result.get('data') or {}).get('capability', '')).lower() not in ('enabled',):
+        data = result.get('data') or {}
+        if result['status'] != 'SUCCESS':
+            raise ValueError('provider capability discovery failed: ' + command)
+        if data.get('shared'):
+            # Shared commands have no top-level capability; select the exact
+            # public scenario using its declared selectors, not any enabled one.
+            if params is None:
+                raise ValueError('scenario parameters required for shared command: ' + command)
+            def matches(scene):
+                selectors = scene.get('selector')
+                if not isinstance(selectors, list) or not selectors:
+                    return False
+                for rule in selectors:
+                    if not isinstance(rule, dict) or set(rule) - {'field', 'equals', 'presence'}:
+                        return False
+                    field = rule.get('field')
+                    if not isinstance(field, str) or ('equals' not in rule and 'presence' not in rule):
+                        return False
+                    if 'equals' in rule and (field not in params or params[field] != rule['equals']):
+                        return False
+                    if 'presence' in rule:
+                        if rule['presence'] not in ('present', 'absent'):
+                            return False
+                        if (field in params) != (rule['presence'] == 'present'):
+                            return False
+                return True
+            selected = [scene for scene in data.get('scenes', []) if matches(scene)]
+            if len(selected) != 1 or str(selected[0].get('capability', '')).lower() != 'enabled':
+                raise ValueError('provider scenario unavailable or ambiguous: ' + command)
+            result = {**result, 'data': {**data, 'selectedScenarioId': selected[0].get('scenarioId'),
+                                       'schema': selected[0]['schema'], 'capability': selected[0]['capability']}}
+        elif str(data.get('capability', '')).lower() != 'enabled':
             raise ValueError('provider capability unavailable: ' + command)
         return result
 
