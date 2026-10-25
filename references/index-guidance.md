@@ -1,24 +1,46 @@
-# 检索与候选复核
+# 查询与持久结果集
 
-## 检索来源
+自然语言由宿主模型解析成 QuerySpec，查询引擎不内置语言模型、不调用 embedding。优先查询当前标签实际使用的词；必要时把同义词展开为 any。不能把整个自然语言句子放进文件名 keyword。
 
-云端检索仅通过 cm-cloud-manage 的公开 files.search/list。2.0.2 支持文件名及类型、时间、后缀、地点/标签等条件，没有公开自然语言语义召回。将自然语言拆成可表达条件，内容部分用已有标签或候选视觉复核；只有上游正式增加相应公开能力后才接入语义服务。
+## QuerySpec
 
-本地 `cloud_photo.py search` 将整条 JSON 转文本，按任意词出现次数计分、按 asset_id 稳定排序，默认最多 20 条。它没有 AND/OR/NOT、时间范围、人物 ID 或完整分页，中文整句不会自动拆成语义条件，不能作为严格过滤器。
+字段必须是 file_metadata、thumbnail_tags、vision_tags 或 index_state 下一级字段。运算符：eq（数组表示任一元素相等）、contains（子串）、in、gte、lte、between（含两端）、exists。逻辑节点 all/any 使用非空数组，not 接收一个节点。
 
-## 固定集合内筛选
+```json
+{"all":[
+  {"any":[
+    {"field":"vision_tags.scene","op":"contains","value":"海边"},
+    {"field":"vision_tags.scene","op":"contains","value":"beach"}
+  ]},
+  {"not":{"field":"vision_tags.image_type","op":"eq","value":"screenshot"}},
+  {"field":"file_metadata.taken_at","op":"between","value":["2025-01-01T00:00:00","2025-12-31T23:59:59.999999"]}
+]}
+```
 
-- “这些照片”绑定持久结果集或完整候选清单；不得从预览图恢复全集，也不得重新全盘搜索扩大范围。
-- 收窄输出为输入子集；放宽条件回到足够大的父集合。否定条件不能靠删除检索词实现。
-- 取值使用实际元数据：拍摄时间与上传时间不同，files.info.location 仅是路径；照片地理/人物/来源不在当前基础输出里。
-- 在当前集合内补标签或分批视觉复核，记录 asset_id、保留/排除/未知与理由。字段缺失不等于不匹配。
-- 通用视觉模型不猜人物姓名；重复 ID、字节相同和构图相似分别处理，不把它们混为自动去重。
-- fileRef 跨调用可能变化；集合成员以本地资产映射管理，不能直接对两次搜索的 token 求交集。
+示例为本地拍摄时钟；有时区的时间使用带偏移的范围。带时区与无时区混合比较返回 unknown，不能擅自认定同一时区。null、空字符串和空数组表示未知；false/0 是实际值。NOT unknown 仍为 unknown，避免把没有截图标签的照片当作确定非截图。
 
-## 索引与计划复用
+## 命令
 
-已有有效索引不重复全量扫描。标签通过 index_runner apply 合并，本次筛选的排除理由保存在结果集而不是长期标签。缺少内容证据时不承诺全库语义覆盖率。
+以下 `$STATE` 是当前用户工作区，`$OWNER` 是宿主绑定身份：
 
-`cloud_photo.py plan` 使用同样的关键词计数和默认前 20 条，输出单目标 review_then_apply 草案，不分组、不调用云盘 CLI。需实现结果集、严格筛选、GroupPlanner 与执行适配后，才能把草案转为可执行整理。
+```bash
+python3 scripts/cloud_photo.py query --state-dir "$STATE" --owner "$OWNER" --manifest "$STATE/manifest.jsonl" --spec query.json --complete
+python3 scripts/cloud_photo.py result-show --state-dir "$STATE" --owner "$OWNER" --result <result-id> --limit 20
+python3 scripts/cloud_photo.py refine --state-dir "$STATE" --owner "$OWNER" --result <result-id> --spec refine.json
+python3 scripts/cloud_photo.py select --state-dir "$STATE" --owner "$OWNER" --result <result-id> --ids selected-ids.json
+python3 scripts/cloud_photo.py dedupe --state-dir "$STATE" --owner "$OWNER" --result <result-id>
+```
 
-云盘读取与引用恢复见 [cloud-access.md](cloud-access.md)，完整开发设计见 [mclaw-integration.md](mclaw-integration.md)。
+只有范围已经核实完整才能加 --complete；否则结果保留 coverage.complete=false。query 不限制成员数，result-show 仅分页展示；excluded/unknown 可用 --bucket 查看。select 接收 asset_id 数组，拒绝父集合以外成员。
+
+refine 只操作父集合的 items，不把 unknown 自动纳入。需要补标签或放宽条件时，在明确的来源范围重新 query，或选回先前祖先；历史快照不原地修改。dedupe 只依据本地原图 sha256，缺哈希保留并列在 unverified_asset_ids，绝不声称相似精选。
+
+## 引用刷新
+
+从云盘公开详情取得新清单后：
+
+```bash
+python3 scripts/cloud_photo.py refresh-refs --state-dir "$STATE" --owner "$OWNER" --result <result-id> --listing fresh-details.json
+```
+
+需规范路径、大小、修改时间都匹配且唯一。任何成员不明确就停止，不按文件名或轮换的 fileRef 猜测。成功生成新的结果 ID，再生成新计划；不能刷新后沿用旧云端确认。

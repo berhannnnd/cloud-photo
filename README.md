@@ -1,63 +1,55 @@
 <div align="center">
 
 <h1>Cloud Photo</h1>
-
-<p><strong>找到照片，继续筛选，按你的想法整理。</strong></p>
-
-<p>面向 Mclaw / OpenClaw 的云盘照片 Skill<br>通过中国移动云盘 Skill 访问照片，以本地索引和可追溯计划承接整理需求。</p>
-
-<p>
-  <a href="SKILL.md">Skill 指南</a> ·
-  <a href="references/cm-cloud-api.md">云盘接口</a> ·
-  <a href="references/mclaw-integration.md">接入设计</a>
-</p>
-
+<p><strong>先理解照片，再按你的想法整理。</strong></p>
+<p>本地内容索引 · 多轮筛选 · 分类相簿<br>面向 OpenClaw / Mclaw，通过中国移动云盘 Skill 访问照片。</p>
+<p><a href="SKILL.md">Skill 指南</a> · <a href="references/architecture.md">完整架构</a> · <a href="references/index-runner.md">建立索引</a> · <a href="references/organizing.md">执行整理</a></p>
 </div>
 
 ---
 
-## 三种入口，同一条整理流程
+## 三种入口，同一份结果集
 
-| 入口 | 对话示例 | 目标行为 |
-| :-- | :-- | :-- |
-| **找图整理** | “找去年旅行的照片，按月份建相册。” | 理解条件 → 找图 → 分组 → 成册 |
-| **结果整理** | “把刚才这些照片，按类型整理。” | 沿用完整结果集合 → 按规则分组 → 写入目标 |
-| **继续筛选** | “这些里去掉截图，只留下清晰的。” | 在当前集合中筛选 → 保留新版本 → 继续查看或整理 |
+| 你说 | 系统做 |
+| :-- | :-- |
+| “找去年海边旅行的照片，按月份建相簿。” | 解析条件 → 查内容索引 → 分组 → 云盘计划 |
+| “把刚才这些照片按类型整理。” | 读取已有完整结果 → 按标签归类 → 选择目标 |
+| “这些里去掉截图，只留清晰的。” | 在原集合内筛选 → 保留子版本 → 继续查看或整理 |
 
-以上是项目要实现的完整流程。当前仓库已提供索引与候选工具，结果集、组合筛选和自动执行仍需开发，详见下方能力表。
+照片内容由宿主视觉模型分批识别，保存在本地 JSONL。自然语言由宿主模型转换为结构化条件，Python 完成集合筛选；不要求云盘提供语义搜索，也不需要向量库。
 
-## 如何接入
+## 架构
 
 ```mermaid
 flowchart LR
-    A["Mclaw / OpenClaw"] --> B["cloud-photo<br/>条件、索引与整理计划"]
-    B -->|公开 CLI| C["cm-cloud-manage<br/>文件、相册与操作回执"]
-    C --> D["中国移动云盘"]
+    A[云盘 Skill] -->|清单与授权图片| B[本地索引]
+    V[宿主视觉模型] -->|内容标签| B
+    U[用户意图] --> Q[结构化查询]
+    B --> Q
+    Q --> R[结果集 / 二次筛选]
+    R --> P[分组与计划]
+    P -->|公开 CLI / 确认执行| A
 ```
 
-**云端访问统一经过 `cm-cloud-manage`。** Cloud Photo 负责照片任务的组织逻辑；云盘 Skill 负责鉴权、资源访问、写入计划和执行回执；图片展示使用宿主已有媒体通道。
+**cloud-photo 管理照片任务，cm-cloud-manage 管理云盘业务。** 两个 Skill 由宿主加载；本项目不直连 OpenClaw 后端，不依赖 Nexus 前端。图片发送和任务卡使用宿主现有能力。
 
-整理有三种落点：**相册**、**回忆故事**、**云盘文件夹**。相册和故事使用图片引用创建；文件夹整理通过复制写入智能体专属目录，保留原图。
+## 已实现与依赖
 
-## 当前能力
-
-| 层次 | 已具备 | 边界 |
+| 环节 | 本地实现 | 仍需具备 |
 | :-- | :-- | :-- |
-| **本仓库** | JSONL 索引校验与合并、分批处理与 checkpoint、关键词候选、计划草案、静态预览图 | 关键词匹配不等于语义搜索；计划草案不会自动执行 |
-| **云盘 Skill 2.0.2** | 文件检索与下载、相册创建与加图、指定图片建故事、建目录与复制、操作状态查询 | 没有公开语义搜图、人物识别、精选去重或结果集内筛选接口 |
-| **待补齐的编排** | 已有通用接入设计 | 持久结果集、组合条件、自动分组、引用恢复、批量执行与对账 |
+| 索引 | 分页续接、增量导入、批次与 checkpoint、EXIF、缩略图、原图哈希 | 云盘取图权限、Pillow、宿主视觉模型 |
+| 搜索 | all/any/not、字段过滤、未知值、完整结果快照与分页展示 | 模型解释自然语言；实际标签覆盖 |
+| 筛选 | 父子结果、显式选图、SHA-256 精确去重、引用刷新 | 人物身份映射、相似/审美精选需额外复核 |
+| 整理 | 时间/类型等多维分组，相簿/故事/目录计划，数量与长度分批 | 云盘有效资源引用及目标权限 |
+| 执行 | 公开 CLI 适配、冻结计划、确认执行、状态日志、防止重复提交 | 云盘真实写入和宿主媒体端到端验收 |
 
-照片的时间、类型和格式可先用现有云盘检索；内容类条件需要已有标签或视觉复核。人物身份、相似精选和大规模语义召回需要额外的已验证能力。
-
-> 云盘接口于 **2026-10-25** 核验：SkillHub 包版本为 **2.0.2**。已检查公开命令、schema 和实现，尚未完成真实账号端到端联调。[查看完整接口与限制 →](references/cm-cloud-api.md)
+本地规则引擎不会自行识别人脸或“最好看”的照片。未知标签不会变成确定匹配，搜索成功不代表下载有权限，计划生成也不代表整理已完成。已知权限不足时先解决取图，再建立内容索引。
 
 ## 开始使用
 
-1. 将本仓库作为 `cloud-photo` Skill 安装到宿主配置的技能目录，并让目标 Agent 加载它。
-2. 同时加载 `@org-vt43r0t0/cm-cloud-manage`，检查实际包版本与公开能力。
-3. 准备 Python 环境和按用户隔离的持久工作目录；静态预览另需 Pillow。
-
-在本仓库目录检查本地工具：
+1. 将本仓库作为一个 `cloud-photo` Skill 加载，同时加载 [中国移动云盘 Skill](https://skillhub.cn/skills/org-vt43r0t0/cm-cloud-manage)。公开 CLI 适配器面向 2.0.2 的 `scripts/` 布局。
+2. 准备 Python >= 3.10；图片处理另需 Pillow。宿主为每个用户/账号分配持久目录和实际可用的视觉模型。
+3. 按 [索引流水线](references/index-runner.md) 扫描、取图、生成标签；已有索引可直接查询。
 
 ```bash
 python3 scripts/cloud_photo.py --help
@@ -65,37 +57,37 @@ python3 scripts/index_runner.py --help
 python3 scripts/preview_pack.py --help
 ```
 
-检查云盘 Skill 的公开能力，将 `{cmSkillDir}` 替换为它的实际安装目录：
+准备 query.json，例如 `{"field":"vision_tags.subjects","op":"eq","value":"猫"}`：
 
 ```bash
-python3 "{cmSkillDir}/scripts/cm_cloud_cli_api.py" capabilities --format json
-python3 "{cmSkillDir}/scripts/cm_cloud_cli_api.py" schema --command-id files.search --format json
+python3 scripts/cloud_photo.py query \
+  --state-dir "$STATE" --owner "$OWNER" \
+  --manifest "$STATE/manifest.jsonl" --spec query.json
 ```
 
-已有 manifest 时，可以先校验并检索关键词：
-
-```bash
-python3 scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
-python3 scripts/cloud_photo.py search .cloud-photo/manifest.jsonl --query "猫"
-```
-
-完整的建索引过程见 [可恢复索引流程](references/index-runner.md)；接入前的环境与版本检查见 [外部依赖](references/dependencies.md)。
+命令返回 result ID，供 refine、select、dedupe 和 group-plan 继续使用。结果不会默认截成 20 张；展示分页与完整成员分开。查询范围已核实取尽时才加 `--complete`。
 
 ## 项目结构
 
 ```text
 cloud-photo/
-├── SKILL.md                 Agent 的任务入口与执行规则
-├── scripts/                 索引、候选和预览工具
-├── references/              云盘接口、数据格式与接入契约
-└── packages/                访问、索引、检索三个模块的职责说明
+├── SKILL.md                    Agent 路由与关键规则
+├── agents/                     宿主展示元信息
+├── scripts/
+│   ├── cloud_photo.py          主命令入口
+│   ├── index_runner.py         索引命令入口
+│   ├── preview_pack.py         静态图片预览
+│   └── cloud_photo_core/       存储、索引、查询、分组、计划与云盘适配
+└── references/                 按任务读取的协议与流程
 ```
 
 ## 进一步阅读
 
 | 文档 | 内容 |
 | :-- | :-- |
-| [云盘公开接口](references/cm-cloud-api.md) | 2.0.2 的命令清单、照片相关参数与未开放能力 |
-| [Mclaw 接入设计](references/mclaw-integration.md) | 结果集、筛选、分类计划与 CLI 执行的职责 |
-| [索引数据格式](references/manifest-schema.md) | 文件元数据、缩略图标签与视觉标签 |
-| [整理回执](references/evidence-pack.md) | 真实状态、部分成功和多轮恢复 |
+| [功能与代码架构](references/architecture.md) | 模块、数据流、状态与外部边界 |
+| [查询与结果集](references/index-guidance.md) | QuerySpec、组合条件、未知值与多轮筛选 |
+| [标签规范](references/photo-index.md) | 模型输出、事实来源和人物限制 |
+| [分组与执行](references/organizing.md) | 相簿、故事、目录、确认和恢复 |
+| [云盘公开接口](references/cm-cloud-api.md) | 上游 2.0.2 命令与限制 |
+| [宿主接入](references/mclaw-integration.md) | 用户隔离、媒体和运行环境 |

@@ -1,20 +1,15 @@
-# photo-index 模块
+# 内容标签与证据
 
-photo-index 分三个阶段工作：
+标签分三组：file_metadata 是文件和 EXIF 事实；thumbnail_tags 是本地/缩略图派生信息；vision_tags 是宿主视觉模型实际观察结果。只允许这些分组，不填臆测置信度。
 
-1. **扫描**：通过 cloud-access 分页读取照片元数据，按稳定 `asset_id` 去重，写入 `pending` 记录。
-2. **缩略图标签**：在本地对缩略图提取方向、尺寸、主色、场景提示和 OCR 等派生信息；生成缩略图失败时保留文件元数据并标记 `partial`。
-3. **视觉标签**：将缩略图或受控图片引用按批次交给多模态文本图片模型，要求只返回 `vision_tags` 对象；模型结果先经过 schema 校验，再合并到对应记录。
+建议视觉词表保持项目内一致，以下是输出形态，不是默认赋值：
 
-不使用 embedding，也不把整库图片直接放入对话上下文。每批完成后原子写入 `batches/<batch-id>.jsonl`，再合并到 manifest，并记录 checkpoint（扫描游标、批次 ID、已完成 asset_id、失败 asset_id）。重复运行按 `source_hash` 跳过未变化的资产。
+```json
+{"asset_id":"asset-example","vision_tags":{"subjects":["猫"],"scene":["室内"],"actions":["睡觉"],"objects":["沙发"],"image_type":"photo","people_count":0,"people":[],"ocr_text":[],"quality":"clear"},"index_state":{"vision_source":"host-model","vision_revision":"label-schema-v1"}}
+```
 
-三类标签的边界：
+image_type 推荐 photo/screenshot/document/illustration；quality 可用 clear/blurred，无法可靠判断填 null。[] 表示没有可用标签，不作为“确定不存在”的证据；如果需要筛选无人照片，使用 people_count=0。不根据外观猜人物姓名、具体地点或日期。人物分组依赖用户确认的身份标签；同一个视觉人物描述不能视为稳定身份。
 
-- `file_metadata`：云盘和图片文件本身提供的事实。
-- `thumbnail_tags`：由缩略图或本地轻量处理得到的派生事实。
-- `vision_tags`：多模态模型根据图片内容生成的可检索词；模型不返回置信度。
+media-prepare 只自动生成方向、尺寸、哈希和 EXIF。主色、OCR、主体、场景、动作和清晰度由可用视觉服务生成。缩略图不足以判断时只取候选原图复核；同一批实际未读取的图片不能提交视觉标签。
 
-
-## 上传索引产物
-
-本地 manifest 通过 schema 校验后，索引模式应按 [cloud-artifacts.md](cloud-artifacts.md) 上传到智能体专属目录的 `.cloud-photo/`。上传是索引流程的最后一个云盘写阶段，必须在批次合并成功后执行，并把真实上传引用写入扫描报告。原始照片不移动、不复制。
+精确重复用原图 SHA-256。相似连拍与最佳照片由宿主复核后输出保留 ID，调用 select 保存选择；当前没有人脸聚类或感知哈希算法，不能宣称自动可靠完成这些能力。标签更新后新建查询结果，已存在快照保持原证据。

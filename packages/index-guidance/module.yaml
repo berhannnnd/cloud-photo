@@ -1,4 +1,0 @@
-name: index-guidance
-role: query-planner
-entrypoint: references/index-guidance.md
-manifest_schema: references/manifest-schema.md

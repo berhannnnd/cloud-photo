@@ -14,8 +14,8 @@
 
 ## 宿主与 Python
 
-宿主需能加载两个 Skill、执行 Python 脚本，并提供按用户隔离的持久工作区。解释器版本与授权依赖以云盘包实际要求为准。本仓库核心脚本使用 Python 标准库；静态预览需要 Pillow，视觉标签需要实际可用的图片模型或宿主视觉工具。
+宿主需能加载两个 Skill、执行 Python 脚本，并提供按用户隔离的持久工作区。解释器版本与授权依赖以云盘包实际要求为准。本仓库核心脚本要求 Python >= 3.10，使用标准库；图片元数据、缩略图与静态预览需要 Pillow，视觉标签需要实际可用的图片模型或宿主视觉工具。
 
 安装目录与用户数据目录分开。云盘 profile/登录信息由云盘 Skill 与宿主管理，不复制到 manifest 或对话。图片输入、媒体发送、任务卡和会话回跳按当前 Mclaw 通道验证；OpenClaw 版本号不会自动补齐这些能力。
 
-接口总表见 [cm-cloud-api.md](cm-cloud-api.md)，职责和待开发项见 [mclaw-integration.md](mclaw-integration.md)。
+接口总表见 [cm-cloud-api.md](cm-cloud-api.md)，职责和宿主边界见 [mclaw-integration.md](mclaw-integration.md)。

@@ -1,4 +1,4 @@
 interface:
   display_name: "Cloud Photo"
-  short_description: "通过云盘 Skill 索引与检索照片，保存候选并规划筛选和分类整理"
+  short_description: "本地内容索引与结果集筛选，通过云盘 Skill 分组建相簿和归档"
   default_prompt: "使用 $cloud-photo 检查可用能力，查找照片并按我的条件继续筛选和整理。"

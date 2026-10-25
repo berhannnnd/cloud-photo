@@ -1,6 +1,6 @@
 # 云盘索引产物
 
-索引产物可通过 cm-cloud-manage 公开 files.mkdir/upload 写入智能体专属目录。上传索引不改变原照片的位置。
+默认本地保存；仅用户明确要求云端备份时，索引产物可通过 cm-cloud-manage 公开 files.mkdir/upload 写入智能体专属目录。上传索引不改变原照片的位置。
 
 ## 目录布局
 
