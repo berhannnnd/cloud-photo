@@ -44,3 +44,18 @@ python3 scripts/cloud_photo.py refresh-refs --state-dir "$STATE" --owner "$OWNER
 ```
 
 需规范路径、大小、修改时间都匹配且唯一。任何成员不明确就停止，不按文件名或轮换的 fileRef 猜测。成功生成新的结果 ID，再生成新计划；不能刷新后沿用旧云端确认。
+
+## 相似候选与复核
+
+media-prepare 从实际图片生成 EXIF 方向校正后的 64 位 dHash。以下命令仅生成候选，不删除照片、不自动选最佳：
+
+```bash
+python3 scripts/cloud_photo.py similar-candidates --state-dir "$STATE" --owner "$OWNER" --result <result-id> --distance 4
+python3 scripts/cloud_photo.py review-show --state-dir "$STATE" --owner "$OWNER" --review <review-id> --offset 0 --limit 20
+```
+
+距离允许 0–8，默认 4；距离 0 也不是字节完全相同的证明。每组是候选边的连通分量，A 接近 B、B 接近 C 不代表 A 接近 C。review 保存来源结果 ID/摘要、成员及每条边距离；模型查看实际图片后，通过 select 在原结果中明确保留成员。缺失或算法版本不一致的哈希列入 unverified_asset_ids，不作为不相似的证明。
+
+当前比较为 O(n²)，单次最多 10000 张、最多 20000 条候选边；超限明确拒绝，缩小范围后重试。裁剪、旋转、同人物不同构图可能漏检，颜色不同或简单画面可能误报。候选快照不改变源结果，review-show 分页不截断存储成员。
+
+执行语义查询前可运行 index_runner.py report，查看字段覆盖。处理状态 complete 不能替代 quality/people 等字段的 populated 统计。

@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from . import execution, grouping, legacy, media, plans, results
+from . import execution, grouping, legacy, media, plans, results, similarity
 from .adapters.cm_cloud import Cloud, scan, download
 from .storage import Store, read
 
@@ -34,6 +34,13 @@ def run(args):
     if cmd == 'refresh-refs':
         from .storage import records
         return summary(results.refresh(store, args.result, records(args.listing)))
+    if cmd == 'similar-candidates':
+        review = similarity.similar_candidates(store, args.result, args.distance)
+        return {k: review[k] for k in ('id', 'digest', 'counts', 'max_distance', 'warning')}
+    if cmd == 'review-show':
+        review = store.load('reviews', args.review)
+        if args.offset < 0 or args.limit < 1: raise ValueError('invalid page bounds')
+        return {**{k: v for k, v in review.items() if k != 'groups'}, 'groups': review['groups'][args.offset:args.offset+args.limit]}
     if cmd == 'dedupe': return summary(grouping.deduplicate(store, args.result))
     if cmd == 'result-show':
         value = store.load('results', args.result)
@@ -70,6 +77,8 @@ def main():
     p=add('refine');p.add_argument('--result', required=True);p.add_argument('--spec', required=True)
     p=add('select');p.add_argument('--result', required=True);p.add_argument('--ids', required=True)
     p=add('refresh-refs');p.add_argument('--result',required=True);p.add_argument('--listing',required=True)
+    p=add('similar-candidates');p.add_argument('--result',required=True);p.add_argument('--distance',type=int,default=4)
+    p=add('review-show');p.add_argument('--review',required=True);p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=20)
     p=add('dedupe');p.add_argument('--result', required=True)
     p=add('result-show');p.add_argument('--result', required=True);p.add_argument('--bucket', choices=['items','excluded','unknown'], default='items');p.add_argument('--offset',type=int,default=0);p.add_argument('--limit',type=int,default=20)
     p=add('group-plan');p.add_argument('--result',required=True);p.add_argument('--target',choices=['album','story','folder','existing-album'],required=True);p.add_argument('--by',default='all');p.add_argument('--prefix',default='');p.add_argument('--overlap',choices=['first','all'],default='first');p.add_argument('--destination');p.add_argument('--allow-partial',action='store_true')

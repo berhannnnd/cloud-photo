@@ -329,6 +329,9 @@ def cmd_report(args):
     rows = read_manifest(pathlib.Path(args.manifest)); counts = {status: 0 for status in STATUSES}
     for row in rows: counts[row["index_state"]["status"]] += 1
     report = {"schema_version": SCHEMA, "generated_at": now(), "manifest": str(args.manifest), "total": len(rows), "counts": counts}
+    from .coverage import field_coverage
+    report['field_coverage'] = field_coverage(rows)
+    report['coverage_note'] = 'Index complete marks processing progress, not recognition of every field. Missing fields remain unknown.'
     if args.output: atomic_json(pathlib.Path(args.output), report)
     print(json.dumps(report, ensure_ascii=False))
 

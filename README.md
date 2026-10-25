@@ -39,7 +39,7 @@ flowchart LR
 | :-- | :-- | :-- |
 | 索引 | 分页续接、增量导入、批次与 checkpoint、EXIF、缩略图、原图哈希 | 云盘取图权限、Pillow、宿主视觉模型 |
 | 搜索 | all/any/not、字段过滤、未知值、完整结果快照与分页展示 | 模型解释自然语言；实际标签覆盖 |
-| 筛选 | 父子结果、显式选图、SHA-256 精确去重、引用刷新 | 人物身份映射、相似/审美精选需额外复核 |
+| 筛选 | 父子结果、显式选图、SHA-256 精确去重、dHash 相似候选、引用刷新 | 人物身份映射、相似/审美精选需额外复核 |
 | 整理 | 时间/类型等多维分组，相簿/故事/目录计划，数量与长度分批 | 云盘有效资源引用及目标权限 |
 | 执行 | 公开 CLI 适配、冻结计划、确认执行、状态日志、防止重复提交 | 云盘真实写入和宿主媒体端到端验收 |
 
@@ -65,7 +65,7 @@ python3 scripts/cloud_photo.py query \
   --manifest "$STATE/manifest.jsonl" --spec query.json
 ```
 
-命令返回 result ID，供 refine、select、dedupe 和 group-plan 继续使用。结果不会默认截成 20 张；展示分页与完整成员分开。查询范围已核实取尽时才加 `--complete`。
+命令返回 result ID，供 refine、select、dedupe、similar-candidates 和 group-plan 继续使用。结果不会默认截成 20 张；展示分页与完整成员分开。查询范围已核实取尽时才加 `--complete`。
 
 ## 项目结构
 

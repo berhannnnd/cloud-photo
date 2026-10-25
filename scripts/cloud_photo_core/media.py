@@ -27,6 +27,12 @@ def prepare(downloads, directory):
                     pass
                 im = ImageOps.exif_transpose(image).convert('RGB')
                 width, height = im.size
+                sample = im.convert('L').resize((9, 8), Image.Resampling.LANCZOS)
+                pixels = sample.load()
+                dhash = 0
+                for y in range(8):
+                    for x in range(8):
+                        dhash = (dhash << 1) | int(pixels[x, y] > pixels[x+1, y])
                 small = im.copy()
                 small.thumbnail((768, 768))
                 thumb = destination / (hashlib.sha256(asset_id.encode()).hexdigest() + '.jpg')
@@ -36,6 +42,7 @@ def prepare(downloads, directory):
                 for chunk in iter(lambda: stream.read(1024*1024), b''):
                     h.update(chunk)
             metadata = {'width': width, 'height': height, 'sha256': h.hexdigest(), 'size_bytes': file.stat().st_size,
+                        'dhash64': f'{dhash:016x}', 'dhash_method': 'exif-oriented-dhash64-v1',
                         'content_source': 'cloud-download' if item['status'] == 'downloaded' else 'local-file'}
             taken = exif.get('DateTimeOriginal')
             if isinstance(taken, str):
@@ -47,7 +54,7 @@ def prepare(downloads, directory):
                     pass
             labels.append({'asset_id': asset_id, 'file_metadata': metadata,
                            'thumbnail_tags': {'orientation': 'landscape' if width > height else 'portrait' if height > width else 'square'},
-                           'index_state': {'status': 'partial', 'metadata_source': 'local-file', 'updated_at': now()}})
+                           'index_state': {'metadata_source': 'local-file', 'updated_at': now()}})
             tasks.append({'asset_id': asset_id, 'thumbnail': str(thumb), 'original': str(file.resolve()),
                           'requested_fields': ['subjects', 'scene', 'actions', 'objects', 'image_type', 'ocr_text', 'people_count', 'quality'],
                           'instruction': 'Use visible evidence. Unknown fields are null; do not infer named identities, dates, or GPS.'})

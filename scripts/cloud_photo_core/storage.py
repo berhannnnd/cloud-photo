@@ -71,7 +71,7 @@ class Store:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path(self, kind, key):
-        if kind not in ('results', 'plans', 'operations') or not re.fullmatch(r'[a-z]+-[a-f0-9]{32}', key):
+        if kind not in ('results', 'plans', 'operations', 'reviews') or not re.fullmatch(r'[a-z]+-[a-f0-9]{32}', key):
             raise ValueError('invalid state reference')
         return self.root / kind / (key + '.json')
 
