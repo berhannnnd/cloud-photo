@@ -30,7 +30,7 @@ python3 scripts/index_runner.py apply --manifest "$STATE/manifest.jsonl" --label
 
 已有本地原文件也可使用 `{"asset_id":"...","status":"local","local_path":"/绝对路径"}` 输入 media-prepare；此时标记 content_source=local-file，不能据此宣称云端下载成功或云端字节已校验。
 
-download 最多 100 项，按回执 itemIndex 关联原成员，不按返回的新 fileRef 或文件名猜测。默认 fail 防止覆盖已有文件；失败项不会成为视觉任务。media-prepare 生成 768 像素边界缩略图、尺寸、方向、原图 SHA-256、可用 EXIF 拍摄时间及视觉任务；不自动识别场景、人脸、OCR 或质量。不能解码的 HEIC 等格式记录失败，须先配置解码能力。
+download 最多 100 项，按回执 itemIndex 关联原成员，不按返回的新 fileRef 或文件名猜测。默认 fail 防止覆盖已有文件；失败或空文件不会成为视觉任务；local_counts 表示本地实际可用文件数，provider_status 保留上游状态。上游报成功但缺成员时，本地结果降为 PARTIAL/FAILED。media-prepare 生成 768 像素边界缩略图、尺寸、方向、原图 SHA-256、可用 EXIF 拍摄时间及视觉任务；不自动识别场景、人脸、OCR 或质量。不能解码的 HEIC 等格式记录失败，须先配置解码能力。
 
 ## 3. 模型标签与恢复
 
@@ -41,6 +41,6 @@ python3 scripts/index_runner.py apply --manifest "$STATE/manifest.jsonl" --label
 python3 scripts/index_runner.py report --manifest "$STATE/manifest.jsonl" --output "$STATE/report.json"
 ```
 
-batch 只选 pending/partial/error。下一批 offset 使用命令实际返回的 next_offset；重试较早失败项从 offset 0 开始。apply 校验三类字段并记录标签来源/版本，不明资产不会写入。已有索引的相应标签可用于局部检索，不需等全库完成；必须说明实际覆盖范围。run-batch 仍兼容外部下载映射，提交 labels 时仅允许本批真实可读取成员。
+batch 只选 pending/partial/error。下一批 offset 使用命令实际返回的 next_offset；重试较早失败项从 offset 0 开始。apply 校验三类字段并记录标签来源/版本、元数据来源和错误码；成功恢复时清除旧错误，非法状态拒绝整批写入，不明资产不会写入。已有索引的相应标签可用于局部检索，不需等全库完成；必须说明实际覆盖范围。run-batch 仍兼容外部下载映射，提交 labels 时仅允许本批真实可读取成员。
 
 本地状态默认不上传。用户明确要求备份时才按 [cloud-artifacts.md](cloud-artifacts.md) 操作。

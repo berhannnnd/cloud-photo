@@ -197,7 +197,10 @@ def download(cloud, batch, directory, output):
             path = (destination / item['localPath']).resolve()
             if not path.is_relative_to(destination) or not path.is_file():
                 raise ValueError('download output missing or outside destination')
-            row.update(status='downloaded', local_path=str(path))
+            if path.stat().st_size == 0:
+                row['error_code'] = 'LOCAL_EMPTY_FILE'
+            else:
+                row.update(status='downloaded', local_path=str(path))
         mapped.append(row)
     for index, row in enumerate(rows):
         if index not in seen:
@@ -205,4 +208,11 @@ def download(cloud, batch, directory, output):
     # Runner-compatible JSONL; no credentials, download URLs or tokens.
     from ..manifest import write_manifest
     write_manifest(Path(output), mapped)
-    return {'status': receipt['status'], 'counts': receipt.get('counts'), 'error': receipt.get('error'), 'output': str(output)}
+    downloaded = sum(item['status'] == 'downloaded' for item in mapped)
+    status, error = receipt['status'], receipt.get('error')
+    if status == 'SUCCESS' and downloaded != len(rows):
+        status = 'PARTIAL' if downloaded else 'FAILED'
+        error = {'code': 'LOCAL_DOWNLOAD_INCOMPLETE', 'message': 'Provider success did not yield every requested nonempty local file.'}
+    return {'status': status, 'provider_status': receipt['status'], 'counts': receipt.get('counts'),
+            'local_counts': {'requested': len(rows), 'downloaded': downloaded, 'failed': len(rows) - downloaded},
+            'error': error, 'output': str(output)}

@@ -301,6 +301,10 @@ def cmd_apply(args):
                 if not isinstance(label[group], dict): fail(f"{asset_id}: {group} must be object")
                 row[group].update(label[group])
         state = label.get("index_state") or {}
+        if not isinstance(state, dict):
+            fail(f"{asset_id}: index_state must be object")
+        if "status" in state and state["status"] not in STATUSES:
+            fail(f"{asset_id}: invalid index_state.status")
         if state.get("status") in STATUSES: row["index_state"]["status"] = state["status"]
         elif "thumbnail_tags" in label or "vision_tags" in label:
             # A label response containing one stage is recoverable progress;
@@ -312,6 +316,15 @@ def cmd_apply(args):
                 value not in (None, "", []) for value in row["vision_tags"].values()
             )
             row["index_state"]["status"] = "complete" if has_thumbnail and has_vision else "partial"
+        if "metadata_source" in state:
+            row["index_state"]["metadata_source"] = state["metadata_source"]
+        if row["index_state"]["status"] == "error":
+            for key in ("error_code", "error_message"):
+                if key in state:
+                    row["index_state"][key] = state[key]
+        else:
+            row["index_state"].pop("error_code", None)
+            row["index_state"].pop("error_message", None)
         row["index_state"]["updated_at"] = now()
         if "vision_tags" in label:
             row["index_state"]["vision_source"] = state.get("vision_source", "host-model")
