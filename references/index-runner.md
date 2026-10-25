@@ -4,7 +4,9 @@
 
 ## 1. 扫描与导入
 
-filters.json 示例：`{"typeList":["1"],"pageSize":100}`。可以增加云盘支持的时间/目录等公开条件；按实际 schema 使用，不能假定 search 有目录参数。
+扫描用户指定目录时使用 `--source list`，filters.json 为 `{"folderRef":"<真实目录引用>","pageSize":100}`，只读取该目录直接成员。目录路径由公开列表回执提供，无需逐图查详情。子目录需要明确另行扫描；递归时仍按实际详情确认路径。
+
+全库或条件搜索使用默认 `--source search`，filters.json 示例：`{"typeList":["1"],"pageSize":100}`。可以增加云盘支持的时间/目录等公开条件；按实际 schema 使用，不能假定 search 有目录参数。
 
 ```bash
 python3 scripts/cloud_photo.py cloud-scan --skill-dir "$CM_SKILL" --filters filters.json --output "$STATE/scan.json"
@@ -13,7 +15,7 @@ python3 scripts/cloud_photo.py cloud-scan --skill-dir "$CM_SKILL" --filters filt
 python3 scripts/index_runner.py ingest --input "$STATE/scan.json" --output-dir "$STATE" --scope personal-images
 ```
 
-scan 每页保存进度；逐项 info 补路径，避免详情重新签发引用导致错误关联。当前采用逐图详情调用，吞吐量取决于云盘网络；大库应分明确范围。失败/未完成信封不能直接 ingest。旧 JSONL 清单依然支持，调用方负责证明其范围与完整性。
+scan 每页保存进度；搜索模式逐项 info 补路径，避免详情重新签发引用导致错误关联。当前采用逐图详情调用，吞吐量取决于云盘网络；大库应分明确范围。失败/未完成信封不能直接 ingest。旧 JSONL 清单依然支持，调用方负责证明其范围与完整性。
 
 ingest 使用本地随机 asset_id，引用轮换时只在唯一规范路径与文件指纹一致时保留身份。同名不合并，哈希相同但路径不同不合并。已知文件发生大小/修改时间或哈希变化时重置标签。增量导入保留未出现的旧成员，不把分页遗漏当删除；--reset 用于明确重建选定范围。不同账号/范围需不同工作区。
 
@@ -25,6 +27,8 @@ python3 scripts/cloud_photo.py cloud-download --skill-dir "$CM_SKILL" --batch "$
 python3 scripts/cloud_photo.py media-prepare --downloads "$STATE/downloads.jsonl" --directory "$STATE/media/batch-001"
 python3 scripts/index_runner.py apply --manifest "$STATE/manifest.jsonl" --labels "$STATE/media/batch-001/metadata.labels.jsonl"
 ```
+
+已有本地原文件也可使用 `{"asset_id":"...","status":"local","local_path":"/绝对路径"}` 输入 media-prepare；此时标记 content_source=local-file，不能据此宣称云端下载成功或云端字节已校验。
 
 download 最多 100 项，按回执 itemIndex 关联原成员，不按返回的新 fileRef 或文件名猜测。默认 fail 防止覆盖已有文件；失败项不会成为视觉任务。media-prepare 生成 768 像素边界缩略图、尺寸、方向、原图 SHA-256、可用 EXIF 拍摄时间及视觉任务；不自动识别场景、人脸、OCR 或质量。不能解码的 HEIC 等格式记录失败，须先配置解码能力。
 

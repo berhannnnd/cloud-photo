@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from .provider_lock import provider_lock
 
 
 def parse_receipt(text):
@@ -54,7 +55,10 @@ class Cloud:
             params['profile'] = self.profile
         argv = [self.python, str(entry), action, *arguments(params)]
         try:
-            response = subprocess.run(argv, capture_output=True, text=True, timeout=self.timeout)
+            with provider_lock(self.root.name, self.profile, self.timeout):
+                response = subprocess.run(argv, capture_output=True, text=True, timeout=self.timeout)
+        except TimeoutError:
+            return {'status': 'FAILED', 'data': None, 'error': {'code': 'LOCAL_PROVIDER_BUSY', 'retryable': True}, 'nextAction': None}
         except subprocess.TimeoutExpired:
             return {'status': 'UNKNOWN', 'data': None, 'error': {'code': 'CLI_TIMEOUT'}, 'nextAction': None}
         # Never expose stderr: SDK diagnostics can contain identity material.
@@ -75,18 +79,23 @@ class Cloud:
         return result
 
 
-def scan(cloud, output, filters, max_pages=100, resume=False):
+def scan(cloud, output, filters, max_pages=100, resume=False, source="search"):
     from ..storage import atomic, read, now
     if not isinstance(filters, dict) or 'cursor' in filters or max_pages < 1:
         raise ValueError('filters must be an object without cursor; max-pages must be positive')
-    cloud.capability('files.search')
+    if source not in ('search', 'list'):
+        raise ValueError('scan source must be search or list')
+    schema = cloud.capability('files.' + source)
+    maximum = (schema.get('data', {}).get('schema', {}).get('properties', {}).get('pageSize', {}).get('maximum'))
+    if maximum and filters.get('pageSize', 10) > maximum:
+        raise ValueError(f'{source} pageSize exceeds provider maximum {maximum}')
     rows, cursor, visited = [], None, set()
     if resume:
         saved = read(output)
-        if saved.get('source') != filters or saved.get('profile') != cloud.profile or saved.get('skill_dir') != str(cloud.root):
+        if saved.get('source_command', 'search') != source or saved.get('source') != filters or saved.get('profile') != cloud.profile or saved.get('skill_dir') != str(cloud.root):
             raise ValueError('scan scope/profile changed')
         if saved.get('page', {}).get('complete'):
-            return {'status': 'SUCCESS', 'complete': True, 'output': str(output)}
+            return {'status': 'SUCCESS', 'complete': True, 'loaded': len(saved['data']['items']), 'output': str(output)}
         rows = saved['data']['items']
         cursor = saved['page'].get('nextCursor')
     complete = False
@@ -94,10 +103,10 @@ def scan(cloud, output, filters, max_pages=100, resume=False):
     def checkpoint(status, next_cursor, error=None):
         atomic(output, {'schemaVersion': '1.0', 'status': status, 'data': {'items': rows},
                         'page': {'complete': complete, 'nextCursor': next_cursor}, 'source': filters,
-                        'profile': cloud.profile, 'skill_dir': str(cloud.root), 'error': error})
+                        'profile': cloud.profile, 'skill_dir': str(cloud.root), 'source_command': source, 'error': error})
     for _ in range(max_pages):
         params = {**filters, **({'cursor': cursor} if cursor else {})}
-        last = cloud.call('files', 'search', params)
+        last = cloud.call('files', source, params)
         if last['status'] not in ('SUCCESS', 'EMPTY'):
             break
         page_rows = []
@@ -106,6 +115,14 @@ def scan(cloud, output, filters, max_pages=100, resume=False):
         # an input index suitable for safely associating batched responses.
         for item in items:
             if not item.get('fileRef'):
+                continue
+            parent_path = (last.get('data') or {}).get('path')
+            name = item.get('name')
+            if (source == 'list' and not filters.get('recursive') and isinstance(parent_path, list)
+                    and isinstance(name, str) and name and '/' not in name and name not in ('.', '..')):
+                # The nonrecursive list contract binds every child to this directory.
+                # Preserve the returned fileRef instead of paying an info request per image.
+                page_rows.append({**item, 'path': parent_path + [name], 'ref_observed_at': now()})
                 continue
             info = cloud.call('files', 'info', {'fileIds': [item['fileRef']], 'fields': ['name', 'size', 'time', 'location']})
             details = (info.get('data') or {}).get('items', [])

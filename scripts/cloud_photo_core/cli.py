@@ -22,7 +22,7 @@ def cloud(args):
 
 def run(args):
     cmd = args.command
-    if cmd == 'cloud-scan': return scan(cloud(args), args.output, read(args.filters), args.max_pages, args.resume)
+    if cmd == 'cloud-scan': return scan(cloud(args), args.output, read(args.filters), args.max_pages, args.resume, args.source)
     if cmd == 'cloud-download': return download(cloud(args), args.batch, args.directory, args.output)
     if cmd == 'media-prepare': return media.prepare(args.downloads, args.directory)
     store = Store(args.state_dir, args.owner)
@@ -77,7 +77,7 @@ def main():
     for name in ('cloud-prepare','cloud-execute','cloud-status'):
         p=add(name,provider=True);p.add_argument('--plan',required=True)
         if name=='cloud-execute':p.add_argument('--confirmation',choices=['CONFIRM'],required=True,help='only after user confirms the displayed provider plan')
-    p=add('cloud-scan',state=False,provider=True);p.add_argument('--filters',required=True);p.add_argument('--output',required=True);p.add_argument('--max-pages',type=int,default=100);p.add_argument('--resume',action='store_true')
+    p=add('cloud-scan',state=False,provider=True);p.add_argument('--source',choices=['search','list'],default='search');p.add_argument('--filters',required=True);p.add_argument('--output',required=True);p.add_argument('--max-pages',type=int,default=100);p.add_argument('--resume',action='store_true')
     p=add('cloud-download',state=False,provider=True);p.add_argument('--batch',required=True);p.add_argument('--directory',required=True);p.add_argument('--output',required=True)
     p=add('media-prepare',state=False);p.add_argument('--downloads',required=True);p.add_argument('--directory',required=True)
     args=parser.parse_args()

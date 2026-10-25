@@ -13,7 +13,7 @@ def prepare(downloads, directory):
         asset_id = item.get('asset_id')
         if not asset_id:
             raise ValueError('missing asset_id')
-        if item.get('status') != 'downloaded':
+        if item.get('status') not in ('downloaded', 'local'):
             failures.append({'asset_id': asset_id, 'reason': 'download-not-successful'})
             continue
         file = Path(item['local_path'])
@@ -35,7 +35,8 @@ def prepare(downloads, directory):
             with file.open('rb') as stream:
                 for chunk in iter(lambda: stream.read(1024*1024), b''):
                     h.update(chunk)
-            metadata = {'width': width, 'height': height, 'sha256': h.hexdigest(), 'size_bytes': file.stat().st_size}
+            metadata = {'width': width, 'height': height, 'sha256': h.hexdigest(), 'size_bytes': file.stat().st_size,
+                        'content_source': 'cloud-download' if item['status'] == 'downloaded' else 'local-file'}
             taken = exif.get('DateTimeOriginal')
             if isinstance(taken, str):
                 from datetime import datetime
