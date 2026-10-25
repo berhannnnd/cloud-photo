@@ -1,50 +1,35 @@
 # cloud-access 模块
 
-该模块只负责访问边界，不实现中国移动云盘 API。所有云盘操作通过已安装的 `cm-cloud-manage` 完成：登录状态检查、目录分页、文件元数据、缩略图/临时图片引用和按文件 ID 重新读取。
+云端访问统一调用 `cm-cloud-manage` 的公开 CLI；本模块不实现中国移动云盘 HTTP，也不直连 Mclaw 业务后端。核验版本为 2.0.2，入口与参数见 [cm-cloud-api.md](cm-cloud-api.md)，完整编排见 [mclaw-integration.md](mclaw-integration.md)。
 
-## 输出给 photo-index 的最小记录
+## 读取与数据归一化
+
+通过 files.search/list 取得候选，必要时 files.info 补名称、大小、时间和路径，通过 files.download 下载候选供本地缩放/标签处理。读取覆盖授权个人云；实际可用范围仍以回执为准。search 不返回 AI 标签、人物、质量或缩略图；info.location 是路径。
+
+索引需要本地稳定 asset_id、来源信息和当前受控 fileRef。现有 v1 manifest 的兼容形态如下，`file_id` 在此存放的是短期引用，**不是底层永久 ID**：
 
 ```json
-{"asset_id":"cm:file-id","source_ref":{"provider":"cm-cloud-manage","file_id":"file-id","path":"/照片/2026/IMG.JPG"},"file_metadata":{}}
+{"asset_id":"local-photo-001","source_ref":{"provider":"cm-cloud-manage","file_id":"<current-fileRef>","path":"/照片/2026/IMG.JPG"},"file_metadata":{}}
 ```
 
-不要把访问令牌、cookie、二维码或临时下载 URL 写入 manifest。临时 URL 只在当前批次内使用，过期后按 `file_id` 重新取得。工作区目录建议：
+该片段只示意来源字段，完整记录须满足 [manifest-schema.md](manifest-schema.md)。把 info 返回的路径段数组规范化为明确的路径格式后再参与匹配；不把不同来源的 type 数值直接当相同枚举。
 
-```text
-.cloud-photo/
-  manifest.jsonl
-  checkpoints/<scan-id>.json
-  batches/<batch-id>.jsonl
-  thumbnails/<asset-id>.<ext>
-  reports/<scan-id>.json
-```
+将 CLI 回执显式归一化为 runner 接收的逐条 JSONL，列表提取 data.items，下载结果映射 asset_id/local_path/status，详见 [index-runner.md](index-runner.md)。runner 有独立逐行读取器；通用 JSONL 截断问题发生在 cloud_photo.py 的 read_json_records。分页必须取至所需范围完成并记录覆盖情况，不把第一页当整库。
 
-访问模块的变更必须只影响 `packages/cloud-access/`，并保持上述输出契约不变。
+不要保存访问令牌、cookie、二维码或临时下载 URL。asset_id、短期引用、扫描范围、路径和元数据分别保存；工作区由宿主按用户隔离。
 
+## 受控引用的生命周期
 
-## 当前适配版本
+当前云盘包的 fileRef 默认有效 12 小时，同一资源在不同调用中可能返回不同 token。只通过公开命令取得引用，不读内部台账，不尝试解码 raw fileId。文件名和 fileRef 都不能作为跨会话的唯一身份。
 
-本模块固定按 `@org-vt43r0t0/cm-cloud-manage` 2.0.0 的能力边界编排。详细差异见 [cm-cloud-compatibility.md](cm-cloud-compatibility.md)：个人云可以全盘读取和下载，但文件写入只落智能体专属目录；文件层面没有移动、删除、改名，整理文件夹时只能复制，整理相簿时使用相簿 API。
+在引用有效时用 files.info 保存必要来源证据。执行前失效的引用须重新 list/search，并根据规范路径与元数据唯一绑定；改名、移动、内容变化或路径复用时保留 unresolved，不能凭同名猜测。
 
+`cloud_photo.py resolve-refs` 当前有按唯一名称回退和通用 JSONL 截断限制，只是匹配辅助，不能独自决定写入。自动执行前需收紧匹配规则；长期可靠恢复建议上游增加稳定资源键/刷新接口。
 
-索引产物上传使用 `files mkdir` / `files upload` 写入专属目录；它不代表原始照片已被移动。
+## 文件夹与相册写入
 
-## 文件复制与整理写入
-
-- 文件夹整理使用 `cmcloud files copy --resources '<JSON 数组>' --destinationRef <folderRef>`。源文件可以来自个人云任意可读位置，目标目录必须是智能体专属目录或其子目录；原照片保持不变。
-- `files copy` 是异步任务。命令返回受理成功不等于所有文件复制成功；必须保存 operation 引用，查询 `cmcloud operation status` 的逐项 succeeded/failed 结果，最后重新 `cmcloud files list` 目标目录对账。
-- 一批复制可以提交多个文件引用。不要在 Skill 中臆造批量上限；实际参数和限制以当前 `cm-cloud-manage` schema/help 为准。批量失败时按逐项结果更新整理报告，未知状态不得自动重放。
-- 复制前先展示图片优先的整理预览，包含候选图片、目标路径和“复制后原图保留”；用户确认后再走计划 → 确认 → 执行。
-- 相册整理优先调用 album 能力把图片加入相簿，不把相册操作伪装成文件复制；相簿与文件夹的结果分别对账。
-## 写入前重新解析引用
-
-`fileRef`、分页游标和下载回执中的引用不能作为跨阶段的长期句柄。执行复制、移动或归档前，必须重新列出源目录（包含相关子目录），把候选的规范路径和文件名交给 `scripts/cloud_photo.py resolve-refs`，只使用唯一解析结果中的当前 `fileRef`。`ambiguous` 和 `missing` 必须停在待处理状态，不能按文件名猜测目标。
-
-```bash
-python scripts/cloud_photo.py resolve-refs \
-  --listing .cloud-photo/reconcile/source-list.json \
-  --items .cloud-photo/organize/candidates.json \
-  --output .cloud-photo/organize/ref-resolution.json
-```
-
-解析结果只负责确定性匹配，不调用云盘 API；云盘 Skill 仍负责分页列举、确认令牌和复制执行。写入后必须重新列目标目录，以实际目录内容对账成功、失败和待补项。
+- 文件夹整理用 files.mkdir/copy，目标只能是智能体专属目录及子目录。先通过 files.list rootScope=dedicated 取得真实根引用和路径；源可来自授权个人云，复制保留原图。
+- 相册使用 album.create + fileRefs 或 album.add；故事使用 album.create kind=story 并指定封面与选图。它们是相册资源，不是云盘目录移动。
+- 云端文件 move/delete/rename 未公开。目标不受支持时明确限制，不能擅自替换目标后称已满足需求。
+- 按当前 schema 生成参数并遵守数量/长度限制；多个写动作用底层 orchestrate 冻结计划、确认和执行。索引产物上传见 [cloud-artifacts.md](cloud-artifacts.md)。
+- 保存真实 operationRef、逐项结果和目标引用。建册加图 PARTIAL 时不重建已成功相册；异步复制按 status/nextAction 处理，未知项先对账。最终用 album.files 或 files.list 核对相应目标，不自动生成公开分享链接代替查看结果。

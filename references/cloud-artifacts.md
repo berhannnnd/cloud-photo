@@ -1,10 +1,10 @@
 # 云盘索引产物
 
-索引完成后可以把索引产物上传到中国移动云盘，但只上传到 2.0 的智能体专属目录，不改变原照片的位置。
+索引产物可通过 cm-cloud-manage 公开 files.mkdir/upload 写入智能体专属目录。上传索引不改变原照片的位置。
 
 ## 目录布局
 
-先通过 `cmcloud files list --rootScope dedicated` 取得真实专属根引用，再创建或复用 `.cloud-photo` 目录：
+通过 files.list rootScope=dedicated 取得当前真实专属根引用，再创建或定位 `.cloud-photo`：
 
 ```text
 <智能体专属目录>/.cloud-photo/
@@ -13,21 +13,14 @@
   report-<scan_id>.json
 ```
 
-`scan_id` 使用一次扫描的稳定 ID。每次更新生成新版本文件，不覆盖旧文件；这样可以在上传结果未知时保留可核对的历史版本。原照片仍以用户个人云中的原文件为事实来源，manifest 的 `source_ref.file_id` 指向原照片。
+每次更新生成新版本文件，保存 scan_id 与实际上传回执。manifest 的 asset_id 是本地身份；当前 v1 source_ref.file_id 可能是短期 fileRef，不能作为下次运行永久可用的云盘 ID。
 
-## 上传顺序
+## 上传与恢复
 
 1. 本地完成批次合并和 schema 校验。
-2. 取得或复用专属目录的真实 `dirRef`。
-3. 由 `cmcloud files mkdir` 创建 `.cloud-photo`（不存在时）。
-4. 使用 `cmcloud files upload` 依次上传 manifest、checkpoint 和报告。
-5. 每个上传动作都走一次统一确认计划；结果未知时按 `operation.status` 核对，不重传。
-6. 保存上传回执中的真实文件引用，下一轮优先读取最新 `manifest-*` 文件，并用 `scan_id` 和更新时间核对版本。
+2. 取得真实 folderRef；同名目录先定位唯一现有对象，不盲目重复创建。
+3. 新建目录与多个上传动作使用底层 orchestrate 固定为一份可承载的计划；依赖前步目录时用其产物引用。
+4. 按底层确认与执行流程处理，保存 operationRef、实际文件名和结果；未知状态先核对，成功项不重复上传。
+5. 新会话从公开 list/download 读取对应版本，验证 scan_id、格式与完整性，再恢复本地状态和短期引用。
 
-上传的索引文件不包含授权令牌、临时下载 URL 或图片二进制；只包含元数据、三类标签、稳定文件引用和处理状态。
-
-## 读取策略
-
-- 当前运行有本地 manifest 且版本未变化时，可直接使用本地缓存。
-- 新会话或本地索引缺失时，从 `.cloud-photo` 目录读取最近一次完整 manifest。
-- manifest 不完整或 schema 校验失败时，不把它当作全量索引；回退到 checkpoint 继续增量索引。
+索引不保存授权凭据、确认 token、临时下载 URL 或图片二进制。持久工作区已有有效 manifest 时优先复用；不完整索引按 checkpoint 继续，不能当作整库已经索引完成。

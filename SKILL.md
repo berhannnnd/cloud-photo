@@ -1,110 +1,66 @@
 ---
 name: cloud-photo
-description: 在云盘中建立可持续更新的照片索引，或根据用户目标整理照片。自动区分“索引照片”和“整理照片”两种模式；通过 cm-cloud-manage 访问中国移动云盘，不把全部照片一次性发送给模型，也不使用 embedding。
+description: 通过中国移动云盘 cm-cloud-manage Skill 索引、检索和整理照片。用于直接找图后整理、基于已有结果自由归类、对搜索结果继续筛选；维护本地标签与候选计划，按公开 CLI 的实际能力创建相册、故事或复制到目录。
 ---
 
 # Cloud Photo
 
-## 最高优先级展示规则
+## 接入边界
 
-无论任何场景，用户要求查找、分类、整理或预览照片时，**必须展示分类后的实际图片**。图片展示是结果的必要条件和最高优先级：即使时间、payload、组件能力或候选数量受限，也要先按类别分批展示图片；文件名、路径、标签、数量、统计、操作计划和报告都可以省略、延后或作为辅助信息，但不能用这些文字内容替代图片。没有实际图片展示就不能宣称任务结果已完成。
+面向 Mclaw / OpenClaw，通过 `cm-cloud-manage` 的**公开 CLI**访问云盘。先检查实际安装包的 `capabilities` 与相关命令 `schema`，入口和能力清单见 [cm-cloud-api.md](references/cm-cloud-api.md)。云盘鉴权、资源引用、写计划和操作回执由该 Skill 管理。
 
-## 对话内图片展示（必须遵守）
+不直连 Mclaw/OpenClaw 业务后端，不调用云盘包内部 `adapter_*.py`，不读取它的凭据或内部引用台账。宿主提供执行环境、用户隔离的持久目录、模型图片能力和媒体发送通道；版本号不代表照片业务能力已经接通。
 
-照片展示默认走 Nexus 原生工作区 Markdown 图片链路，不把图片字节放进模型上下文。`preview_pack.py markdown` 会生成短的 `![文件名](.cloud-photo/...)` 画廊；Nexus 会把这些工作区相对路径解析为带权限的 inline preview URL。
+当前本包的可执行能力：manifest 校验/合并、关键词候选、单目标计划草案、索引批次/checkpoint、引用匹配辅助、静态预览图片。持久结果集、结构化筛选、自动分类、精选去重和 CLI 执行适配器**尚未实现**。下文是编排规则，不能把设计中的模块或命令当作现成工具。
 
-如果当前对话需要使用 Nexus `visualize`/`show_widget` 组件展示图片，必须先使用本 Skill 的共享 loopback relay，再用 `preview_pack.py widget --image-base-url ... --image-token ...` 生成 HTML。relay 只传短的受 token 保护的图片 URL，不把图片编码成 Base64；`show_widget` 接收成功仍不等于图片已渲染，必须确认图片实际出现后才算完成。
+## 能力判断
 
-每个稳定的 workspace 或 owner 使用一个持久 `state-dir` 和 `service-id`。每个对话只生成自己的 `session-id`，调用 `preview_server.py start` 时先复用已经运行的共享服务，再向同一端口注册一个独立 token；不要为每个对话重复起端口。服务默认常驻：任务完成、回复结束或组件渲染成功后都不能顺手关闭服务。一个会话执行 `stop` 只注销自己，不能停止仍被其他对话使用的服务；`stop-service` 只能在用户明确要求关闭服务、确认没有活动会话，并额外传入 `--confirm-close` 时执行。state-dir 必须落在持久工作区或 owner 状态目录，不能放在 `/tmp`。
+- 云盘 2.0.2 的 `files.search` 支持文件名、类型、后缀、地点/标签、时间、大小；`keyword` 是文件名包含匹配，不能承接自然语言语义搜图。
+- 云盘可新建相册并加图、追加已有相册、以指定图片创建故事。选择哪些照片、怎样分组由 cloud-photo 完成。
+- 没有公开人物识别、语义召回、质量精选、内容相似去重、`fileIdList` 限定搜索或持久结果集接口。缺少数据时说明未知；可对授权范围内的候选下载并补标签，不承诺全库召回或可靠人物识别。
+- 云盘文件读取可覆盖授权个人云；文件夹写入只能落在智能体专属目录及子目录，使用复制保留原图。相册操作使用独立的 album 能力。
+- 搜索和整理分开授权。用户只要求找图或筛选时不建册；已明确授权的整理按确定范围推进，并满足底层计划确认契约，不伪造确认或重复索要已满足的授权。
 
-禁止使用 `file://`、未受本 Skill 管理的 `localhost`/`127.0.0.1` 服务、绝对路径、临时下载 URL 或手工 Base64。不要使用固定端口、全局 `pkill` 或任意 `http.server`。relay 能防止不同会话误用彼此的 token 和 workspace，但同一操作系统用户仍可以故意终止进程；Skill 不能把普通用户进程变成安全边界。若服务失效，先用 `status`，再用相同 `service-id` 和新的会话参数调用 `start` 恢复；不能杀掉未知进程。若工作区图片 URL 无法取得，必须报告“图片预览未完成”，不能用文件名或交付文件卡片代替。
+## 三种入口
 
-这是一个顶层 Skill，安装后同时提供三个协作模块：
+| 用户意图 | 处理 |
+| --- | --- |
+| 找去年旅行照片，按月建相册 | 解析条件 → 取得候选 → 补充必要标签 → 筛选/分组 → 相册计划 |
+| 把刚才的照片按类型或人物整理 | 绑定上一完整结果集合 → 校验标签 → 按指定或自动规则分组 |
+| 这些里排除截图，只留清晰的 | 在当前集合内部生成子集，保存排除/未知；不自动建相册 |
+| 扫描、更新照片索引 | 维护 manifest/checkpoint，不改变照片归属 |
 
-1. **cloud-access**：发现云盘文件、读取元数据、取得缩略图或可访问的图片引用，并把结果写入工作区索引目录。
-2. **photo-index**：对照片生成三类标签并维护 manifest：文件元数据、缩略图派生标签、多模态视觉标签。
-3. **index-guidance**：把用户的自然语言条件转换成结构化检索条件，先查索引，再只把候选图片交给视觉模型复核。
+详细路由见 [modes.md](references/modes.md)。“这些/刚才/上一批”必须对应真实清单与范围；没有完整清单时恢复来源，不从几张预览图猜全集。
 
-三个模块可以在 `packages/` 下独立维护，但只能由本顶层 `SKILL.md` 作为可安装入口。模块之间通过 `references/manifest-schema.md` 定义的 JSONL 清单交换数据。
+## 搜索、筛选与整理
 
-## 模式路由
+1. 拆分时间、地点、人物、内容/类型、格式、来源及目标。明确拍摄时间与上传时间；人物姓名需要用户提供的身份映射，不能从外观猜姓名。
+2. 用公开 `files.search/list` 取得候选，按 `page.complete` 和 `page.nextCursor` 保存完整分页。内容检索可结合已有本地标签或候选视觉复核；`cloud_photo.py search` 只是关键词召回，默认前 20 条，不能当作满足全部条件的结果。
+3. 持久保存完整候选、查询范围和来源。`fileRef` 是短期受控引用，不能当永久 fileId 或跨调用比较键。当前 v1 manifest 的 `source_ref.file_id` 实际可能存的是 fileRef；续接和刷新方式见 [cloud-access.md](references/cloud-access.md)。
+4. 二次筛选输出必须是输入集合的子集；放宽早期条件要回到覆盖被排除照片的父集合。无公开范围内搜索接口时，在本地集合上处理，不悄悄全库重搜。缺失字段保留 unknown，按需补查或复核。
+5. 分组时保存维度、命名、同图多组/互斥策略和未知项归属。自动分类依据实际标签分布；质量精选与内容相似去重必须有算法或逐图复核证据。按 ID 去重仅消除重复记录。
+6. 固定输入集合、规则、目标与计划版本。用公开 `album.create/add` 创建或追加相册，`album.create --kind story` 创建指定选图故事，`files.mkdir/copy` 复制到专属目录。多个写动作使用底层 `orchestrate`，遵守参数数量、步骤长度和确认契约。设计见 [mclaw-integration.md](references/mclaw-integration.md)。
+7. 空集合不建空册/目录。按 CLI 顶层状态、`operationRef`、`nextAction` 与逐项回执恢复；受理、处理中、部分成功、未知不能报告为全部完成。成功项不重放，建册成功加图失败只恢复加图。回执规范见 [evidence-pack.md](references/evidence-pack.md)。
 
-先读取 [modes.md](references/modes.md) 判断用户意图：
+当前 `cloud_photo.py plan` 只生成草案，不执行这些云端动作。没有实际执行器时，明确已完成到哪一步。
 
-- 用户说“索引、扫描、打标签、建立照片库”时，只走索引模式：扫描、打标签、写入 manifest，不执行云盘整理写操作。
-- 用户说“整理、归类、移动、归档、创建相册”时，走整理模式：先检索和视觉复核，输出可审阅的预览计划，得到确认后才执行云盘写操作。
-- 同时提出两种要求时，先补齐必要索引，再停在整理预览计划。
+## 本地索引与展示
 
-## 运行约束
+按 [cloud-access](references/cloud-access.md) → [photo-index](references/photo-index.md) → [index-guidance](references/index-guidance.md) 分工，使用现有 runner 完成 ingest → batch → run-batch → apply → report。只补充缺失标签，已有有效索引不重复扫描。三类标签和格式见 [manifest-schema.md](references/manifest-schema.md)；不新建 embedding 库，不写臆测置信度。
 
-- 使用 `cm-cloud-manage` 完成登录、列目录、读取文件和取得图片引用；不要复制或改写该 Skill 的源码。
-- 大规模相册必须分批、可恢复地建立索引。每条记录都要有稳定的 `asset_id`、`source_ref` 和 `schema_version`。
-- 不把整库图片放进一次模型请求；检索先在索引上过滤，随后只检查有限候选，必要时再逐张取得原图。
-- 标签只使用三类：`file_metadata`、`thumbnail_tags`、`vision_tags`。不要加入 `confidence` 或 embedding 字段。
-- 默认只读；移动、重命名、删除、建相册等写操作必须在用户明确要求后调用 `cm-cloud-manage` 的确认流程。
-- 索引文件放在云盘智能体专属目录下的 `.cloud-photo/`；每次索引生成带 `scan_id` 的 manifest、checkpoint 和报告并上传，原始照片仍是云盘中的唯一事实来源。
+`{baseDir}` 指本 Skill 安装目录，`{cmSkillDir}` 指云盘 Skill 安装目录；用户状态写入宿主分配的持久 `.cloud-photo/`，安装目录与数据目录分开。预览使用宿主支持的媒体能力，见 [preview.md](references/preview.md)；本地文件存在不代表客户端已展示。
 
-## 工作流
-
-1. 读取 [cloud-access.md](references/cloud-access.md)，确认当前云盘身份、工作区和可用的图片引用。
-2. 读取 [manifest-schema.md](references/manifest-schema.md)，用 `scripts/cloud_photo.py validate` 检查或创建清单。
-3. 首次或增量整理时读取 [photo-index.md](references/photo-index.md)，按游标扫描文件、生成缩略图标签，再按受控批次请求多模态视觉标签。
-4. 用户提出“找照片”时读取 [index-guidance.md](references/index-guidance.md)，先运行本地检索，再对候选进行视觉复核。
-5. 索引或整理完成后读取 [preview.md](references/preview.md)、[image-first-preview.md](references/image-first-preview.md) 和 [evidence-pack.md](references/evidence-pack.md)：优先用 `preview_pack.py markdown` 生成每批一个、包含最多 6 张照片的紧凑工作区图片画廊；若使用 `visualize`/`show_widget` 展示图片，先按共享 relay 流程注册会话并生成 relay URL，确认实际渲染后再用 `nexus.deliver_files` 交付清单和报告。
-6. 每个阶段都保存 checkpoint；失败或超时只重试未完成的批次，不重放已经确认的云盘写操作。
-7. 需要确认外部依赖时读取 [dependencies.md](references/dependencies.md)，运行 `dependency-status`；不要在索引任务中自动升级 `cm-cloud-manage`。
-
-大规模相册的上下文边界、三类索引信息和实测召回流程见 [photo-retrieval-at-scale.md](references/photo-retrieval-at-scale.md)。
-
-## Nexus 对话内展示流程
-
-索引或整理完成后，必须把“做了什么”和“哪些图片对应哪些结果”展示在当前对话中：
-
-1. 先通过 `cloud-access` 取得实际处理或检索命中的原图引用，并让用户能打开真实原图；回复主体必须按分类使用经过尺寸和 payload 检查的图片预览。候选过多时按类别和批次展示，contact sheet 只作总览附件。
-2. 用普通文字给出真实数量和状态。
-3. 运行 `preview_pack.py markdown` 生成单批原生图片画廊，并把输出的 Markdown 原样放入回复。每批生成一张最多包含 6 张照片的 contact sheet；图片使用 `.cloud-photo/` 下的相对路径，Nexus 负责鉴权和 inline 读取。若必须使用 `show_widget`，先运行一次共享 relay `start`，把输出的 `url`、`token` 和 `session_id` 传给 `preview_pack.py widget`；不要把图片 Base64 读入上下文。
-4. 组件实际显示图片后不要自动关闭服务，也不要在任务收尾时顺手执行 `stop-service`；共享服务和当前 session 可以留给其他对话复用。只有用户明确要求注销当前 session 时才执行 `stop`，只有用户明确要求关闭服务时才执行 `stop-service --confirm-close`。用 `nexus.deliver_files` 交付整理报告、manifest、checkpoint 和完整 contact sheet 文件。
-
-只有回复中实际出现可解析的工作区 Markdown 图片，或收到平台原生图片附件后，才算完成预览；仅生成 contact sheet 文件、widget HTML 草稿或 `deliver_files` 文件卡片不算展示成功。禁止读取或拼接任何 `.b64`/`sheets_b64.txt` 文件。
-5. 对每张图片优先展示图片本身；稳定云盘链接和路径作为辅助信息，没有稳定链接时只展示云盘路径，不伪造 URL。`file_id` 仅保留在内部 manifest 和执行回执中，不在对话界面展示。若一个批次超过 6 张，先用 `--sheet-offset` 生成下一批画廊，不要连续调用多个 `show_widget`。
-
-不要把 `yun.139.com` 登录页面嵌入 `show_widget`。widget 只承载已经落盘的静态预览和轻量状态，云盘读取和写入仍通过 `cm-cloud-manage 2.0.0` 完成。完整字段和交付文件见 [evidence-pack.md](references/evidence-pack.md)。
-
-## 可执行索引流水线
-
-索引模式优先使用 [index-runner.md](references/index-runner.md) 的预置 runner，不要临时编写全量扫描脚本：
-
-1. `cm-cloud-manage` 输出云盘文件清单 JSONL。
-2. `index_runner.py ingest` 过滤非图片并生成 pending manifest。
-3. `index_runner.py batch` 生成有界批次、下载请求和下一批游标；宿主按批次取得图片或缩略图。
-4. 宿主把下载结果交给 `index_runner.py run-batch`，由 runner 校验文件并生成缩略图任务清单。
-5. 多模态模型返回三类标签 JSONL，`index_runner.py apply` 合并并更新 manifest/checkpoint。
-6. `report` 生成进度，供 `show_widget` 实时展示；每批都可以独立上传和恢复。
-
-索引模式必须优先使用 `index_runner.py`。如果 runner 已覆盖当前步骤，不得临时创建新的全量扫描、批次合并或 checkpoint 脚本；临时脚本只能处理尚未覆盖的云盘适配边界，并且结果必须回交 runner。
-
-云盘登录、清单读取和图片取得仍由 `cm-cloud-manage` 完成；runner 不读取凭据，也不直接请求云盘 API。
-
-## 配套工具
+## 当前可执行命令
 
 ```text
-python scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .cloud-photo
-python scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
-python scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
-python scripts/preview_pack.py build --items .cloud-photo/organize/candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/organize/preview
-python scripts/preview_pack.py markdown --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/gallery-01.md
-# show_widget 图片模式：start 的 JSON 中读取 url/token/session_id 后执行
-python scripts/preview_server.py start --root "$WORKSPACE" --state-dir "$WORKSPACE/.cloud-photo/runtime/relay" --service-id cloud-photo --session-id "$SESSION_ID"
-python scripts/preview_pack.py widget --preview-index .cloud-photo/organize/preview/preview-index.json --output .cloud-photo/organize/preview/widget.html --image-base-url "$RELAY_URL" --image-token "$RELAY_TOKEN" --workspace-root "$WORKSPACE"
-# 下一批使用 --sheet-offset 1、2…；把生成的 gallery-02.md 原样放入回复
-python scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
-python scripts/cloud_photo.py mode-detect --text "把我这里照片索引一下"
-python scripts/cloud_photo.py init --output .cloud-photo/manifest.jsonl
-python scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
-python scripts/cloud_photo.py search .cloud-photo/manifest.jsonl --query "猫 户外"
-python scripts/cloud_photo.py resolve-refs --listing fresh-list.json --items candidates.json --output ref-resolution.json
-python scripts/cloud_photo.py plan .cloud-photo/manifest.jsonl --query "猫" --target "猫相册"
-python scripts/cloud_photo.py merge --base old.jsonl --delta batch.jsonl --output manifest.jsonl
+python3 {baseDir}/scripts/index_runner.py ingest --input cloud-listing.jsonl --output-dir .cloud-photo
+python3 {baseDir}/scripts/index_runner.py batch --manifest .cloud-photo/manifest.jsonl --output .cloud-photo/batch.jsonl --limit 32
+python3 {baseDir}/scripts/index_runner.py run-batch --manifest .cloud-photo/manifest.jsonl --batch .cloud-photo/batch.jsonl --downloads .cloud-photo/downloads.jsonl --batch-id batch-001
+python3 {baseDir}/scripts/index_runner.py report --manifest .cloud-photo/manifest.jsonl
+python3 {baseDir}/scripts/cloud_photo.py validate .cloud-photo/manifest.jsonl
+python3 {baseDir}/scripts/cloud_photo.py search .cloud-photo/manifest.jsonl --query "猫"
+python3 {baseDir}/scripts/cloud_photo.py plan .cloud-photo/manifest.jsonl --query "猫" --target "猫相册"
+python3 {baseDir}/scripts/preview_pack.py build --items candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/preview
 ```
 
-工具只负责确定性格式校验、合并和检索；云盘登录、文件下载、缩略图生成和视觉模型调用仍由宿主与 `cm-cloud-manage` 按模块契约完成。
+runner 的列表/下载输入需先按 [index-runner.md](references/index-runner.md) 转成逐条 JSONL，不能直接传原始 CLI 信封。它使用独立逐行读取器；`cloud_photo.py resolve-refs` 使用的通用 `read_json_records` 则存在多行 JSONL 截断问题，修复前该命令仅使用规范 JSON 数组/单个信封作匹配辅助。`mode-detect` 只是关键词路由提示。通用接入设计见 [接入契约](references/mclaw-integration.md)。

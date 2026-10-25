@@ -1,0 +1,7 @@
+# Local photo datasets, demo fixtures and generated reports.
+/data/
+
+# Local runtime state and Python cache.
+/.cloud-photo/
+__pycache__/
+*.pyc

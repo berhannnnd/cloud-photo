@@ -1,57 +1,13 @@
-# 对话内图片预览
+# 宿主照片预览
 
-照片展示优先使用 Nexus 原生工作区 Markdown 图片链路。它会把 `.cloud-photo/` 下的相对路径解析为带权限的 inline preview URL，图片由 Nexus 读取，模型只传短路径，不搬运图片二进制。
+照片展示由 Mclaw 当前通道的媒体发送/图片卡片能力负责。先检查实际工具 schema；OpenClaw 能加载 Skill 不代表每个客户端都能读取容器文件或渲染相同卡片。
 
-如果必须用 `visualize`/`show_widget`，使用 `scripts/preview_server.py` 管理共享 relay。relay 只启动一次，多个对话通过同一个 `service-id` 和持久 `state-dir` 注册各自的 `session-id` 与 token；图片 URL 按 token 映射到该会话的 workspace。每次对话都可以直接调用 `start`，它会先复用运行中的服务，再注册当前会话，不要另起固定端口。
+1. 通过云盘 Skill 的公开读取/下载取得当前候选图片；2.0.2 搜索回执没有缩略图 URL，需要时下载后在本地缩放。按用户授权范围读取。
+2. 通道能直接展示受控图片引用时使用原生图片能力。只能发送本地媒体时，把图片交给宿主媒体上传/发送工具。具体参数以宿主工具为准，不拼造工具名。
+3. 可选运行 `python3 {baseDir}/scripts/preview_pack.py build --items candidates.json --thumbnail-dir .cloud-photo/thumbnails --output .cloud-photo/preview`，生成最多六张一组的预览图片和 `preview-index.json`。脚本只生成文件，不上传、不发送、不证明客户端已经展示。
+4. 图片下提供短名称、云盘路径和候选/执行状态。文件 ID 留在内部清单，用户通过宿主提供的相册/文件夹/结果链接打开原图。
+5. 通道暂不支持图片时，清楚返回筛选数量、规则、目标和实际结果链接，并标明“当前通道未展示图片”。不能把生成文件说成已经展示，也不能因此把成功的云端整理改报失败。
 
-## 硬性规则
+不向手机/浏览器发送容器内 localhost 地址、file:// 或未经宿主转换的工作区路径；不把 Base64 图片塞进模型回复。持久状态保存本地 asset_id、来源证据与当前引用绑定，不把短期 fileRef 当永久 ID，也不保存凭据或临时签名。仅使用回执/宿主已有结果链接，不默认创建公开分享链接。
 
-- 只要用户要求查找、分类、整理或预览照片，回复中必须先出现实际图片；文件名、路径、标签、统计和报告只能作为辅助信息。
-- 预览文件必须落盘到当前 workspace 的 `.cloud-photo/`，不能只放在 `/tmp`。下载完成后先复制到该目录，再生成画廊。
-- 使用 `scripts/preview_pack.py markdown` 从 `preview-index.json` 生成一批 Markdown 图片，默认最多 6 张；把生成文件的内容原样放入当前回复。
-- Markdown 图片链接必须是 `.cloud-photo/...` 工作区相对路径。禁止 `file://`、未受本 Skill 管理的 `localhost`/`127.0.0.1`、绝对路径、临时下载 URL 和手工 Base64。
-- 每批最多 6 张；更多结果按 `--sheet-offset 1`、`2` 继续生成，不把大量图片拼进一次回复。
-- 需要用 `show_widget` 放图片时，先执行：
-
-```text
-python scripts/preview_server.py start \
-  --root "$WORKSPACE" \
-  --state-dir "$WORKSPACE/.cloud-photo/runtime/relay" \
-  --service-id cloud-photo \
-  --session-id "$SESSION_ID"
-```
-
-读取该 JSON 输出中的 `url`、`token` 和 `session_id`，再执行：
-
-```text
-python scripts/preview_pack.py widget \
-  --preview-index .cloud-photo/organize/preview/preview-index.json \
-  --output .cloud-photo/organize/preview/widget.html \
-  --image-base-url "$RELAY_URL" \
-  --image-token "$RELAY_TOKEN" \
-  --workspace-root "$WORKSPACE"
-```
-
-把生成的 HTML 交给 `show_widget`。组件接受成功不能证明图片已加载；图片显示后也不要自动关闭服务或注销 session，服务默认留给其他对话复用。只有用户明确要求注销当前 session 时才执行 `stop --session-id`；只有用户明确要求关闭服务、确认没有活动 session 时才执行 `stop-service --confirm-close`。服务失效时先运行 `status`，再重新 `start`，不要使用 `pkill`、固定端口或任意 `http.server`。
-
-## 标准流程
-
-1. 用 `cm-cloud-manage` 取得实际候选照片或持久化缩略图，并复制到 `.cloud-photo/`。
-2. 检查每个引用存在、非空且为图片格式。
-3. 运行：
-
-```text
-python scripts/preview_pack.py markdown \
-  --preview-index .cloud-photo/organize/preview/preview-index.json \
-  --output .cloud-photo/organize/preview/gallery-01.md
-```
-
-4. 读取 `gallery-01.md`，把其中的 Markdown 原样放入回复；文件名和云盘路径放在图片下方。
-5. 需要统计或计划卡片时，再加载 `visualize` Skill 并调用 `show_widget`；如果已经使用 relay widget 展示图片，可以在同一个 widget 中放轻量状态，但不增加图片字节或未经限制的候选数量。
-6. 用 `nexus.deliver_files` 交付 manifest、checkpoint、报告和完整 contact sheet；文件卡片不能代替正文图片。
-
-## 失败处理
-
-如果工作区图片 URL 无法取得，先报告图片预览未完成并重新物化/检查图片；不能用文件名列表、文件卡片或“已生成 contact sheet”冒充图片已展示。停止中转服务或清理 `/tmp` 不应影响已经落盘的 `.cloud-photo/` 图片。
-
-整理结果按“图片 → 一句结论 → 路径/标签/状态”的顺序展示。用户可见内容不显示 `file_id`；稳定云盘链接只有在实际返回且仍有效时才提供。
+预览仅覆盖一页/一批时明确展示范围。用户说“全部搜索结果”时以完整结果集为准；说“这几张”时以实际选择的 ID 清单为准。
