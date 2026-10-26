@@ -1,5 +1,6 @@
 """Local image evidence and bounded thumbnails, never guessed semantic labels."""
 import hashlib
+import math
 from pathlib import Path
 from .storage import atomic, records, now
 from .provenance import geo_cells
@@ -19,13 +20,20 @@ def _gps(raw_exif):
     except (KeyError, TypeError, ValueError):
         return None
     try:
-        def degrees(dms, ref, negative):
+        def degrees(dms, ref, positive, negative, limit):
+            direction = (_text(ref) or '').upper()
+            if direction not in (positive, negative):
+                raise ValueError('missing or invalid GPS direction')
             d, m, sec = (float(x) for x in dms)
+            if not all(math.isfinite(x) for x in (d, m, sec)) or not (0 <= d <= limit and 0 <= m < 60 and 0 <= sec < 60):
+                raise ValueError('invalid GPS degrees/minutes/seconds')
             value = d + m / 60 + sec / 3600
-            return -value if _text(ref) and _text(ref).upper() == negative else value
-        lat = degrees(info[2], info.get(1), 'S')
-        lon = degrees(info[4], info.get(3), 'W')
-    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            if value > limit:
+                raise ValueError('GPS coordinate outside range')
+            return -value if direction == negative else value
+        lat = degrees(info[2], info.get(1), 'N', 'S', 90)
+        lon = degrees(info[4], info.get(3), 'E', 'W', 180)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError):
         return None
     if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
         return None

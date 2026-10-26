@@ -5,9 +5,7 @@ rule recognises stays unknown; nothing here guesses from image content.
 """
 import re
 
-# Ordered: channel rules (screenshot / chat apps / downloads) win over camera
-# evidence, because a photo saved from WeChat is still a WeChat image even when
-# its original EXIF survived.
+# Filename and folder matches are hints, not proof of capture or transfer history.
 NAME_RULES = (
     ('screenshot', re.compile(r'^(screenshot|screen ?shot|scrnli_|snipaste)|截屏|截图|屏幕截图', re.I)),
     ('wechat', re.compile(r'^(mmexport|wx_camera_|微信图片_)', re.I)),
@@ -24,10 +22,18 @@ PATH_RULES = (
     ('download', re.compile(r'/(downloads?|下载)(/|$)', re.I)),
     ('capture', re.compile(r'/(dcim|camera|相机|相机胶卷)(/|$)', re.I)),
 )
-PHONE_MAKES = {
-    'apple', 'huawei', 'honor', 'xiaomi', 'redmi', 'oppo', 'vivo', 'oneplus', 'realme', 'samsung',
-    'google', 'meizu', 'motorola', 'zte', 'nubia', 'iqoo', 'lenovo', 'sony mobile', 'nothing',
-}
+# Deliberately narrow model families: a manufacturer can sell several device types.
+DEVICE_RULES = (
+    ('phone', r'apple', r'iphone(?:\s|\d)'),
+    ('phone', r'samsung', r'(?:sm-|gt-i|galaxy)'),
+    ('camera', r'samsung', r'(?:nx|wb|st|ex)\d'),
+    ('phone', r'sony(?: mobile)?', r'(?:xperia|xq-|sov|so-\d)'),
+    ('camera', r'sony', r'(?:ilce-|ilca-|dsc-|nex-|slt-)'),
+    ('phone', r'google', r'pixel'),
+    ('phone', r'huawei', r'(?:p\d|mate\s|nova\s)'),
+    ('camera', r'canon', r'(?:canon\s+)?(?:eos|powershot|ixus)'),
+    ('camera', r'nikon', r'(?:nikon\s+)?(?:d\d|z\s?\d|coolpix)'),
+)
 CHANNELS = {'screenshot', 'wechat', 'qq', 'download'}
 GEOHASH = '0123456789bcdefghjkmnpqrstuvwxyz'
 CELL_PRECISIONS = (3, 4, 5)  # ~156km, ~39km, ~5km cells
@@ -40,31 +46,45 @@ def folder(path):
     return head or '/'
 
 
-def classify(name, path, make=None, model=None):
-    """Return (source_kind, evidence); (None, None) when no rule applies."""
+def origins(name, path, make=None, model=None):
+    """Separate device and channel hints, retaining evidence rather than claiming origin."""
     name = name or (path.rsplit('/', 1)[-1] if isinstance(path, str) else '')
-    by_name = next(((kind, f'filename:{m.group(0)}') for kind, rule in NAME_RULES for m in [rule.search(name)] if m), None)
-    by_path = next(((kind, f'path:{m.group(1)}') for kind, rule in PATH_RULES for m in [rule.search(path or '')] if m), None)
-    for hit in (by_name, by_path):
-        if hit and hit[0] in CHANNELS:
-            return hit
-    make_text = str(make or '').strip()
-    if make_text:
-        lowered = make_text.casefold()
-        is_phone = lowered in PHONE_MAKES or 'iphone' in str(model or '').casefold()
-        return ('phone' if is_phone else 'camera'), f'exif:make={make_text}'
-    for hit in (by_name, by_path):
+    hits = [(kind, f'{source}:{match.group(0)}')
+            for source, rules, value in (('filename', NAME_RULES, name), ('path', PATH_RULES, path or ''))
+            for kind, rule in rules for match in [rule.search(value)] if match]
+    # Keep the legacy path evidence spelling.
+    hits = [(kind, evidence.replace('path:/', 'path:').rstrip('/') if evidence.startswith('path:') else evidence)
+            for kind, evidence in hits]
+    channel = next((hit for hit in hits if hit[0] in CHANNELS), (None, None))
+    make_text, model_text = str(make or '').strip(), str(model or '').strip()
+    device = (None, None)
+    if make_text or model_text:
+        kind = next((kind for kind, maker, family in DEVICE_RULES
+                     if re.fullmatch(maker, make_text, re.I) and re.match(family, model_text, re.I)), 'capture')
+        device = (kind, f'exif:make={make_text};model={model_text}')
+    else:
+        hit = next((hit for hit in hits if hit[0] not in CHANNELS), None)
         if hit:
-            return hit
-    return None, None
+            # Naming conventions alone do not establish the physical device type.
+            device = ('capture', hit[1])
+    return device, channel
+
+
+def classify(name, path, make=None, model=None):
+    """Legacy mixed field: channel first, otherwise device; prefer origins for new queries."""
+    device, channel = origins(name, path, make, model)
+    return channel if channel[0] else device
 
 
 def annotate(metadata, path):
-    """Recompute derived origin fields in place from the merged record."""
+    """Recompute derived hints in place from the merged record."""
     metadata['folder'] = folder(path)
-    kind, evidence = classify(metadata.get('name'), path, metadata.get('camera_make'), metadata.get('camera_model'))
-    metadata['source_kind'] = kind
-    metadata['source_evidence'] = evidence
+    device, channel = origins(metadata.get('name'), path, metadata.get('camera_make'), metadata.get('camera_model'))
+    for prefix, result in (('capture_device', device), ('save_channel', channel)):
+        metadata[prefix] = result[0]
+        metadata[prefix + '_evidence'] = result[1]
+        metadata[prefix + '_basis'] = 'rule-inference' if result[0] else None
+    metadata['source_kind'], metadata['source_evidence'] = channel if channel[0] else device
     return metadata
 
 

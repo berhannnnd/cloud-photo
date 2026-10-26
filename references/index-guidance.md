@@ -23,16 +23,16 @@
 
 这三类条件都是普通字段，不需要额外运算符：
 
-- **地点**：模型把地名换算为经纬度范围，再用 `between` 查 `file_metadata.gps_lat` / `gps_lon`。国内外地名同样处理，不依赖地名库；城市取覆盖市区的范围，景点或街区可收窄。跨越 180° 经线时把经度拆成两个区间放进 any。范围是近似矩形，边界附近的照片应向用户展示并允许放宽或收窄。
-- **按地点分组**：group-plan 维度用 `file_metadata.geo_cell_3`（约 150 km）、`geo_cell_4`（约 40 km）或 `geo_cell_5`（约 5 km）。组名是网格编码；向用户展示前按组内坐标给出地名，无法确定时写“某地附近”并附坐标，不按每张照片猜地名。
-- **来源**：`file_metadata.source_kind` 取值 phone、camera、capture（设备拍摄但机型未知）、screenshot、wechat、qq、download。“截图”可同时用 any 合并 `source_kind=screenshot` 与 `vision_tags.image_type=screenshot`。
+- **地点**：用 `between` 查询 `file_metadata.gps_lat` / `gps_lon`。优先采用用户给定范围或可用地理编码工具的结果，注明地名、范围来源及坐标系（与 EXIF 的 WGS84 对齐）。同名地点先明确城市/国家；没有可靠范围时说明限制，不能把模型估算当成精确城市或街区边界。用户接受近似检索时才使用明确标注的估算范围。跨 180° 经线拆成两个经度区间放进 any。矩形不等于行政边界，边缘候选需复核。
+- **按地点分组**：使用 `file_metadata.geo_cell_3`、`geo_cell_4` 或 `geo_cell_5`。这是不同精度的地理网格，不是城市/景点；网格边界会拆开相邻照片，尺寸随纬度变化。组名默认保留网格编号；有可靠逆地理编码依据时才用地名，无法确定时写“位置组 <网格编号>”。默认不展示精确坐标；用户明确要求时可展示已有 EXIF 坐标并注明来源。
+- **来源**：设备用 `file_metadata.capture_device`（phone/camera/capture），渠道用 `file_metadata.save_channel`（screenshot/wechat/qq/download），可同时筛选。规则推断须结合对应 evidence 展示，不宣称已证明真实来源。旧 `source_kind` 仅兼容历史查询。“截图”可用 any 合并 `save_channel=screenshot` 与 `vision_tags.image_type=screenshot`。
 - **目录**：`file_metadata.folder` 是云盘父目录，用 `contains` 或 `eq` 限定或排除文件夹。
 
 ```json
 {"all":[
   {"field":"file_metadata.gps_lat","op":"between","value":[30.10,30.45]},
   {"field":"file_metadata.gps_lon","op":"between","value":[119.95,120.40]},
-  {"not":{"field":"file_metadata.source_kind","op":"in","value":["screenshot","wechat"]}}
+  {"not":{"field":"file_metadata.save_channel","op":"in","value":["screenshot","wechat"]}}
 ]}
 ```
 

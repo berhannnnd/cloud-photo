@@ -29,10 +29,12 @@
 | 字段 | 来源 | 说明 |
 | --- | --- | --- |
 | `folder` | ingest，云盘规范路径 | 父目录，根目录为 `/` |
-| `source_kind` / `source_evidence` | ingest 与 apply 时由 `provenance.py` 重算 | 见 [照片来源](photo-index.md#照片来源)；未命中规则为 null |
+| `capture_device` / `capture_device_evidence` / `capture_device_basis` | ingest/apply 规则推断 | phone/camera/capture；未知为 null，basis 为 rule-inference |
+| `save_channel` / `save_channel_evidence` / `save_channel_basis` | ingest/apply 规则推断 | screenshot/wechat/qq/download；与设备独立，不证明传输历史 |
+| `source_kind` / `source_evidence` | ingest 与 apply 时由 `provenance.py` 重算 | 见 [照片来源](photo-index.md#照片来源)；兼容旧查询，新查询使用拆分字段；未命中规则为 null |
 | `camera_make` / `camera_model` / `software` | media-prepare，EXIF | 原样保存，去除空白 |
-| `gps_lat` / `gps_lon` / `gps_source` | media-prepare，EXIF GPS | 十进制度，保留 6 位；(0,0) 与越界值丢弃 |
-| `geo_cell_3` / `geo_cell_4` / `geo_cell_5` | 由 GPS 计算的 geohash 前缀 | 约 150 km / 40 km / 5 km 网格，用于按地点分组 |
+| `gps_lat` / `gps_lon` / `gps_source` | media-prepare，EXIF GPS | 十进制度，保留 6 位；方向必须为 N/S 与 E/W，度分秒须有限且范围合法；(0,0)、不完整和越界值丢弃 |
+| `geo_cell_3` / `geo_cell_4` / `geo_cell_5` | 由 GPS 计算的 geohash 前缀 | 不同精度网格，尺寸随纬度变化；不代表城市/景点边界 |
 
 `asset_id` 用于本地索引身份。现有 v1 的 `source_ref.file_id` 是兼容字段，runner 会把云盘 `fileRef` 存入其中；它不保证是永久业务 ID。当前云盘引用会过期且跨调用变化，长期映射与刷新要求见 [cloud-access.md](cloud-access.md)。不要为了取得原始 ID 读取云盘内部台账。
 

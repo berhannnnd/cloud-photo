@@ -4,7 +4,7 @@
 def field_coverage(rows):
     fields = (
         'file_metadata.taken_at', 'file_metadata.sha256', 'file_metadata.dhash64',
-        'file_metadata.gps_lat', 'file_metadata.camera_model', 'file_metadata.source_kind',
+        'file_metadata.capture_device', 'file_metadata.save_channel', 'file_metadata.gps_lat', 'file_metadata.camera_model', 'file_metadata.source_kind',
         'vision_tags.subjects', 'vision_tags.scene', 'vision_tags.image_type',
         'vision_tags.people', 'vision_tags.quality', 'vision_tags.ocr_text',
     )
