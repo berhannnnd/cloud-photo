@@ -2,6 +2,34 @@
 import hashlib
 from pathlib import Path
 from .storage import atomic, records, now
+from .provenance import geo_cells
+
+
+def _text(value):
+    if isinstance(value, bytes):
+        value = value.decode('utf-8', 'ignore')
+    value = str(value or '').replace('\x00', '').strip()
+    return value or None
+
+
+def _gps(raw_exif):
+    """Decimal degrees from the EXIF GPS IFD; None when absent or implausible."""
+    try:
+        info = raw_exif.get_ifd(0x8825)
+    except (KeyError, TypeError, ValueError):
+        return None
+    try:
+        def degrees(dms, ref, negative):
+            d, m, sec = (float(x) for x in dms)
+            value = d + m / 60 + sec / 3600
+            return -value if _text(ref) and _text(ref).upper() == negative else value
+        lat = degrees(info[2], info.get(1), 'S')
+        lon = degrees(info[4], info.get(3), 'W')
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or (lat == 0 and lon == 0):
+        return None
+    return round(lat, 6), round(lon, 6)
 
 
 def prepare(downloads, directory):
@@ -25,6 +53,7 @@ def prepare(downloads, directory):
                     exif.update({ExifTags.TAGS.get(k, str(k)): v for k, v in raw_exif.get_ifd(34665).items()})
                 except (KeyError, TypeError, ValueError):
                     pass
+                gps = _gps(raw_exif)
                 im = ImageOps.exif_transpose(image).convert('RGB')
                 width, height = im.size
                 sample = im.convert('L').resize((9, 8), Image.Resampling.LANCZOS)
@@ -44,6 +73,11 @@ def prepare(downloads, directory):
             metadata = {'width': width, 'height': height, 'sha256': h.hexdigest(), 'size_bytes': file.stat().st_size,
                         'dhash64': f'{dhash:016x}', 'dhash_method': 'exif-oriented-dhash64-v1',
                         'content_source': 'cloud-download' if item['status'] == 'downloaded' else 'local-file'}
+            for key, tag in (('camera_make', 271), ('camera_model', 272), ('software', 305)):
+                if _text(raw_exif.get(tag)):
+                    metadata[key] = _text(raw_exif.get(tag))
+            if gps:
+                metadata.update({'gps_lat': gps[0], 'gps_lon': gps[1], 'gps_source': 'exif'}, **geo_cells(*gps))
             taken = exif.get('DateTimeOriginal')
             if isinstance(taken, str):
                 from datetime import datetime

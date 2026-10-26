@@ -30,7 +30,7 @@ python3 scripts/index_runner.py apply --manifest "$STATE/manifest.jsonl" --label
 
 已有本地原文件也可使用 `{"asset_id":"...","status":"local","local_path":"/绝对路径"}` 输入 media-prepare；此时标记 content_source=local-file，不能据此宣称云端下载成功或云端字节已校验。
 
-download 最多 100 项，按回执 itemIndex 关联原成员，不按返回的新 fileRef 或文件名猜测。默认 fail 防止覆盖已有文件；失败或空文件不会成为视觉任务；local_counts 表示本地实际可用文件数，provider_status 保留上游状态。上游报成功但缺成员时，本地结果降为 PARTIAL/FAILED。media-prepare 生成 768 像素边界缩略图、尺寸、方向、原图 SHA-256、可用 EXIF 拍摄时间及视觉任务；不自动识别场景、人脸、OCR 或质量。不能解码的 HEIC 等格式记录失败，须先配置解码能力。
+download 最多 100 项，按回执 itemIndex 关联原成员，不按返回的新 fileRef 或文件名猜测。默认 fail 防止覆盖已有文件；失败或空文件不会成为视觉任务；local_counts 表示本地实际可用文件数，provider_status 保留上游状态。上游报成功但缺成员时，本地结果降为 PARTIAL/FAILED。media-prepare 生成 768 像素边界缩略图、尺寸、方向、原图 SHA-256、可用 EXIF 拍摄时间、相机型号、GPS 与地理网格及视觉任务；不自动识别场景、人脸、OCR 或质量。不能解码的 HEIC 等格式记录失败，须先配置解码能力。
 
 ## 3. 模型标签与恢复
 

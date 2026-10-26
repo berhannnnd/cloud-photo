@@ -9,6 +9,7 @@ import argparse, datetime as dt, json, pathlib, tempfile, sys
 import os
 import uuid
 from .assets import path as normalize_path, fingerprint
+from .provenance import annotate
 from .storage import records as read_records
 
 SCHEMA = "cloud-photo/v1"
@@ -177,6 +178,7 @@ def cmd_ingest(args):
             else:
                 fresh["index_state"]["error_code"] = None
                 fresh["index_state"]["error_message"] = None
+        annotate(fresh["file_metadata"], path)
         rows.append(fresh)
     # Incremental imports do not imply deletion of assets absent from this page.
     rows.extend(old for key, old in prior.items() if key not in seen)
@@ -300,6 +302,7 @@ def cmd_apply(args):
             if group in label:
                 if not isinstance(label[group], dict): fail(f"{asset_id}: {group} must be object")
                 row[group].update(label[group])
+        annotate(row["file_metadata"], row["source_ref"].get("path"))
         state = label.get("index_state") or {}
         if not isinstance(state, dict):
             fail(f"{asset_id}: index_state must be object")

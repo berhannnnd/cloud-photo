@@ -46,7 +46,8 @@ scripts/
     manifest.py                  共享 manifest 校验与 JSONL 写入
     indexing.py                  索引 ingest/batch/apply/checkpoint
     assets.py                    规范路径、指纹与保守引用匹配
-    media.py                     原图哈希、EXIF、缩略图、视觉任务清单
+    media.py                     原图哈希、EXIF、GPS、缩略图、视觉任务清单
+    provenance.py                来源规则、父目录与 GPS 地理网格
     query.py                     QuerySpec 校验与三值逻辑
     results.py                   全集、子集、显式选择和引用刷新快照
     grouping.py                  多维分组、精确去重

@@ -24,6 +24,16 @@
 }
 ```
 
+派生字段（均在 file_metadata 下，缺失为 null 或不出现）：
+
+| 字段 | 来源 | 说明 |
+| --- | --- | --- |
+| `folder` | ingest，云盘规范路径 | 父目录，根目录为 `/` |
+| `source_kind` / `source_evidence` | ingest 与 apply 时由 `provenance.py` 重算 | 见 [照片来源](photo-index.md#照片来源)；未命中规则为 null |
+| `camera_make` / `camera_model` / `software` | media-prepare，EXIF | 原样保存，去除空白 |
+| `gps_lat` / `gps_lon` / `gps_source` | media-prepare，EXIF GPS | 十进制度，保留 6 位；(0,0) 与越界值丢弃 |
+| `geo_cell_3` / `geo_cell_4` / `geo_cell_5` | 由 GPS 计算的 geohash 前缀 | 约 150 km / 40 km / 5 km 网格，用于按地点分组 |
+
 `asset_id` 用于本地索引身份。现有 v1 的 `source_ref.file_id` 是兼容字段，runner 会把云盘 `fileRef` 存入其中；它不保证是永久业务 ID。当前云盘引用会过期且跨调用变化，长期映射与刷新要求见 [cloud-access.md](cloud-access.md)。不要为了取得原始 ID 读取云盘内部台账。
 
 `file_metadata`、`thumbnail_tags` 和 `vision_tags` 是唯一允许的标签分组。未能取得的值使用空数组、空字符串或 `null`，不要猜测。拍摄时间与上传时间必须区分；ingest 保留云盘 takenAt 为 taken_at；media-prepare 可补 EXIF 时间，缺时区须保留为本地时钟。`index_state.status` 可为 `pending`、`partial`、`complete` 或 `error`；错误写入 `index_state.error_code` 和 `index_state.error_message`，不得把错误记录伪装成完成。

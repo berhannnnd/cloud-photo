@@ -19,6 +19,25 @@
 
 示例为本地拍摄时钟；有时区的时间使用带偏移的范围。带时区与无时区混合比较返回 unknown，不能擅自认定同一时区。null、空字符串和空数组表示未知；false/0 是实际值。NOT unknown 仍为 unknown，避免把没有截图标签的照片当作确定非截图。
 
+## 地点、来源与目录
+
+这三类条件都是普通字段，不需要额外运算符：
+
+- **地点**：模型把地名换算为经纬度范围，再用 `between` 查 `file_metadata.gps_lat` / `gps_lon`。国内外地名同样处理，不依赖地名库；城市取覆盖市区的范围，景点或街区可收窄。跨越 180° 经线时把经度拆成两个区间放进 any。范围是近似矩形，边界附近的照片应向用户展示并允许放宽或收窄。
+- **按地点分组**：group-plan 维度用 `file_metadata.geo_cell_3`（约 150 km）、`geo_cell_4`（约 40 km）或 `geo_cell_5`（约 5 km）。组名是网格编码；向用户展示前按组内坐标给出地名，无法确定时写“某地附近”并附坐标，不按每张照片猜地名。
+- **来源**：`file_metadata.source_kind` 取值 phone、camera、capture（设备拍摄但机型未知）、screenshot、wechat、qq、download。“截图”可同时用 any 合并 `source_kind=screenshot` 与 `vision_tags.image_type=screenshot`。
+- **目录**：`file_metadata.folder` 是云盘父目录，用 `contains` 或 `eq` 限定或排除文件夹。
+
+```json
+{"all":[
+  {"field":"file_metadata.gps_lat","op":"between","value":[30.10,30.45]},
+  {"field":"file_metadata.gps_lon","op":"between","value":[119.95,120.40]},
+  {"not":{"field":"file_metadata.source_kind","op":"in","value":["screenshot","wechat"]}}
+]}
+```
+
+GPS 只来自原图 EXIF。微信/QQ 转发图、截图和被压缩的图片通常没有 GPS，按地点查询时进入 unknown，需单独告知数量；不能用画面内容、文件名或目录名推断拍摄地点。查询地点前用 report 查看 `file_metadata.gps_lat` 覆盖率。
+
 ## 命令
 
 以下 `$STATE` 是当前用户工作区，`$OWNER` 是宿主绑定身份：
