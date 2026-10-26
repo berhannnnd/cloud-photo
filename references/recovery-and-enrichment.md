@@ -29,3 +29,20 @@ python3 scripts/cloud_photo.py refresh-index --state-dir "$STATE" --owner "$OWNE
 只更新原 items，不引入任何新成员；保留旧快照。原图哈希不一致、资产消失或缺少可验证身份时拒绝。无哈希时仅接受相同规范路径及完整大小/修改时间指纹，这不是字节一致证明。新结果没有重新应用旧条件，使用新 ID 再 refine。下一批补标应针对刷新后的结果生成，避免重复请求已经补齐的字段。
 
 此流程补足缺失证据，不承诺人脸识别或审美模型。某字段依旧无法识别时应报告未知数量，不无限重试。
+
+## 取图失败恢复
+
+使用 media-index 固定本批成员、合并成功与失败状态。不能仅凭退出码、文件存在或批次执行过判断完成：检查 index-report.json 的 index_applied、status、media_complete、failed。media_complete 只表示取图与元数据阶段完成，不代表视觉标签齐全。checkpoint.processed_asset_ids 表示处理过，可能包含 error，不能当作成功清单。
+
+- 空文件、缺文件、大小/已有哈希不一致或下载失败：标记 error，输出 retry.batch.jsonl，仅包含需重新取图的成员。不要用数据集原图覆盖失败下载并宣称云端验证成功。
+- 解码失败：先核对内容、格式和 Pillow 解码能力；列入 needs_review，不自动无限重新下载。GPS/相机字段缺失不是解码失败。
+- 原失败文件和回执保留；重新下载到新的目录，避免 conflictPolicy=fail 被旧空文件阻挡。不要删除或覆盖成功文件。
+
+```bash
+python3 scripts/cloud_photo.py cloud-download --skill-dir "$CM_SKILL" --batch "$STATE/media/batch-001/retry.batch.jsonl" --directory "$STATE/retry-downloads/attempt-001" --output "$STATE/retry-downloads-001.jsonl"
+python3 scripts/cloud_photo.py media-index --manifest "$STATE/manifest.jsonl" --batch "$STATE/media/batch-001/retry.batch.jsonl" --downloads "$STATE/retry-downloads-001.jsonl" --directory "$STATE/media/retry-001"
+```
+
+retry_count 为 0 时不调用 cloud-download。重试再次失败则报告错误并检查权限/网络，不循环重试。引用过期先通过公开接口刷新并重新生成相同成员批次；不得读取私有台账。media-index 拒绝成员元数据/引用已变化的旧 batch。命令中断时检查现有 manifest 和报告，以同一范围的新批次恢复；禁止重放相簿创建、复制等云端写操作。
+
+底层 media-prepare 仍可单独使用；它不修改 manifest，失败标签在 failure.labels.jsonl，不能只 apply 成功标签后宣称整批完成。优先使用 media-index，避免宿主自行拼接恢复脚本。

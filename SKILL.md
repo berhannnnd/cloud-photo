@@ -21,6 +21,8 @@ description: 通过中国移动云盘 Skill 获取照片，在本地建立内容
 | 按时间、类型、人物整理 | 固定 result → group-plan → plan-show → cloud-prepare → 展示底层计划 → cloud-execute | [整理与执行](references/organizing.md) |
 | 查看进度、恢复任务 | 查看本地 checkpoint/结果/计划，cloud-status 查询原 operation | [回执与恢复](references/evidence-pack.md) |
 
+取图与元数据阶段优先使用 `media-index`，按失败回执恢复单项；不要以文件存在或完成标记代替成功校验。
+
 长任务进度、跨会话恢复与候选内补标见 [恢复与补标](references/recovery-and-enrichment.md)；需要客户端图片与跨会话交互时按 [宿主验收](references/host-integration.md) 验证。
 
 完整架构与模块位置见 [architecture.md](references/architecture.md)。不需要一次加载所有文档。

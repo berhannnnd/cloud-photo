@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from . import execution, grouping, legacy, media, plans, results, similarity, enrichment, progress, diagnostics
+from . import execution, grouping, legacy, media, plans, results, similarity, enrichment, progress, diagnostics, media_batch
 from .adapters.cm_cloud import Cloud, scan, download
 from .storage import Store, read
 
@@ -25,6 +25,7 @@ def run(args):
     if cmd == 'environment-check': return diagnostics.check(args.directory)
     if cmd == 'cloud-scan': return scan(cloud(args), args.output, read(args.filters), args.max_pages, args.resume, args.source)
     if cmd == 'cloud-download': return download(cloud(args), args.batch, args.directory, args.output)
+    if cmd == 'media-index': return media_batch.run(args.manifest, args.batch, args.downloads, args.directory)
     if cmd == 'media-prepare': return media.prepare(args.downloads, args.directory)
     store = Store(args.state_dir, args.owner)
     if cmd == 'reconcile-plan':
@@ -106,6 +107,7 @@ def main():
     p=add('cloud-scan',state=False,provider=True);p.add_argument('--source',choices=['search','list'],default='search');p.add_argument('--filters',required=True);p.add_argument('--output',required=True);p.add_argument('--max-pages',type=int,default=100);p.add_argument('--resume',action='store_true')
     p=add('cloud-download',state=False,provider=True);p.add_argument('--batch',required=True);p.add_argument('--directory',required=True);p.add_argument('--output',required=True)
     p=add('media-prepare',state=False);p.add_argument('--downloads',required=True);p.add_argument('--directory',required=True)
+    p=add('media-index',state=False);p.add_argument('--manifest',required=True);p.add_argument('--batch',required=True);p.add_argument('--downloads',required=True);p.add_argument('--directory',required=True)
     args=parser.parse_args()
     try:
         args.func(args)

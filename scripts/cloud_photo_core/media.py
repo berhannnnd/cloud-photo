@@ -45,14 +45,28 @@ def prepare(downloads, directory):
     destination = Path(directory).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     labels, tasks, failures = [], [], []
-    for item in records(downloads):
+    inputs = records(downloads)
+    ids = [item.get('asset_id') for item in inputs]
+    if any(not i for i in ids) or len(ids) != len(set(ids)):
+        raise ValueError('missing or duplicate asset_id')
+    for item in inputs:
         asset_id = item.get('asset_id')
         if not asset_id:
             raise ValueError('missing asset_id')
         if item.get('status') not in ('downloaded', 'local'):
             failures.append({'asset_id': asset_id, 'reason': 'download-not-successful'})
             continue
-        file = Path(item['local_path'])
+        file = Path(item.get('local_path') or '')
+        if not item.get('local_path') or not file.is_file():
+            failures.append({'asset_id': asset_id, 'reason': 'LOCAL_FILE_MISSING'})
+            continue
+        if file.stat().st_size == 0:
+            failures.append({'asset_id': asset_id, 'reason': 'LOCAL_EMPTY_FILE'})
+            continue
+        expected_size = item.get('expected_size_bytes')
+        if expected_size is not None and file.stat().st_size != expected_size:
+            failures.append({'asset_id': asset_id, 'reason': 'LOCAL_SIZE_MISMATCH'})
+            continue
         try:
             with Image.open(file) as image:
                 raw_exif = image.getexif()
@@ -78,6 +92,9 @@ def prepare(downloads, directory):
             with file.open('rb') as stream:
                 for chunk in iter(lambda: stream.read(1024*1024), b''):
                     h.update(chunk)
+            if item.get('expected_sha256') and h.hexdigest() != item['expected_sha256']:
+                failures.append({'asset_id': asset_id, 'reason': 'LOCAL_HASH_MISMATCH'})
+                continue
             metadata = {'width': width, 'height': height, 'sha256': h.hexdigest(), 'size_bytes': file.stat().st_size,
                         'dhash64': f'{dhash:016x}', 'dhash_method': 'exif-oriented-dhash64-v1',
                         'content_source': 'cloud-download' if item['status'] == 'downloaded' else 'local-file'}
@@ -105,7 +122,13 @@ def prepare(downloads, directory):
     from .manifest import write_manifest
     write_manifest(destination / 'metadata.labels.jsonl', labels)
     write_manifest(destination / 'vision.tasks.jsonl', tasks)
-    result = {'prepared': len(tasks), 'failed': failures, 'metadata_labels': str(destination / 'metadata.labels.jsonl'),
+    failure_labels = [{'asset_id': f['asset_id'], 'index_state': {
+        'status': 'error', 'error_code': f['reason'], 'error_message': 'Local media preparation failed: ' + f['reason']}}
+        for f in failures]
+    write_manifest(destination / 'failure.labels.jsonl', failure_labels)
+    result = {'status': 'SUCCESS' if not failures else 'PARTIAL' if tasks else 'FAILED',
+              'requested': len(inputs), 'media_complete': not failures and bool(inputs),
+              'failure_labels': str(destination / 'failure.labels.jsonl'), 'prepared': len(tasks), 'failed': failures, 'metadata_labels': str(destination / 'metadata.labels.jsonl'),
               'vision_tasks': str(destination / 'vision.tasks.jsonl')}
     atomic(destination / 'report.json', result)
     return result
