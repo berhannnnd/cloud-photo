@@ -9,7 +9,7 @@ description: 通过中国移动云盘 Skill 获取照片，在本地建立内容
 
 宿主模型理解意图、看图生成标签和解释结果；Python 负责完整集合、确定性筛选、分组和操作恢复；`cm-cloud-manage` 负责鉴权及云端读写。无需云端语义搜索接口，不新建向量库。索引质量取决于实际看过的图片与标签覆盖，不能把文件名匹配当画面识别。
 
-先读 [依赖与运行环境](references/dependencies.md)。`{baseDir}` 为本 Skill 安装目录，`{cmSkillDir}` 为云盘 Skill 安装目录。状态写入宿主分配的用户持久工作区，`--owner` 来自宿主身份；不能让聊天内容替换其他用户身份。CLI 的 owner 分区不是操作系统权限隔离。
+运行要求：**Python >= 3.10；图片处理需 Pillow >= 9.1**，按 `requirements.txt` 安装。先读 [依赖与运行环境](references/dependencies.md)，用 `environment-check` 验证实际解释器与工作区。`{baseDir}` 为本 Skill 安装目录，`{cmSkillDir}` 为云盘 Skill 安装目录。状态写入宿主分配的用户持久工作区，`--owner` 来自宿主身份；不能让聊天内容替换其他用户身份。CLI 的 owner 分区不是操作系统权限隔离。
 
 ## 按任务读取
 
@@ -20,6 +20,8 @@ description: 通过中国移动云盘 Skill 获取照片，在本地建立内容
 | “这些里面……” | 使用原 result ID → refine/select/dedupe，近似画面用 similar-candidates → review-show → 视觉复核 → select | [查询与结果集](references/index-guidance.md) |
 | 按时间、类型、人物整理 | 固定 result → group-plan → plan-show → cloud-prepare → 展示底层计划 → cloud-execute | [整理与执行](references/organizing.md) |
 | 查看进度、恢复任务 | 查看本地 checkpoint/结果/计划，cloud-status 查询原 operation | [回执与恢复](references/evidence-pack.md) |
+
+长任务进度、跨会话恢复与候选内补标见 [恢复与补标](references/recovery-and-enrichment.md)；需要客户端图片与跨会话交互时按 [宿主验收](references/mclaw-integration.md) 验证。
 
 完整架构与模块位置见 [architecture.md](references/architecture.md)。不需要一次加载所有文档。
 

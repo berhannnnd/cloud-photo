@@ -1,0 +1,2 @@
+# Image metadata, thumbnails and preview generation. Core query/plan logic uses stdlib.
+Pillow>=9.1

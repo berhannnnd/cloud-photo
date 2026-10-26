@@ -52,6 +52,9 @@ scripts/
     grouping.py                  多维分组、精确去重
     similarity.py                有上限的感知哈希候选与复核快照
     coverage.py                  逐字段覆盖统计，不推断识别准确率
+    enrichment.py                候选缺失字段任务与选集证据刷新
+    progress.py                  已有操作进度与恢复指引，不自动重放
+    diagnostics.py               Python、图片解码器与工作区自检
     plans.py                     冻结成员与分组、数量/长度受限的步骤编译
     execution.py                 prepare/confirm/execute/status 日志
     adapters/cm_cloud.py         公共 CLI subprocess、信封解析、扫描与下载

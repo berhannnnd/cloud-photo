@@ -40,6 +40,8 @@ def arguments(params):
 
 class Cloud:
     def __init__(self, skill_dir, profile='default', python=None, timeout=120):
+        if type(timeout) is not int or timeout <= 0:
+            raise ValueError('CLI timeout must be a positive integer in seconds')
         self.root = Path(skill_dir).resolve()
         self.profile = profile
         self.python = python or sys.executable

@@ -48,7 +48,7 @@ flowchart LR
 ## 开始使用
 
 1. 将本仓库作为一个 `cloud-photo` Skill 加载，同时加载 [中国移动云盘 Skill](https://skillhub.cn/skills/org-vt43r0t0/cm-cloud-manage)。公开 CLI 适配器面向 2.0.2 的 `scripts/` 布局。
-2. 准备 Python >= 3.10；图片处理另需 Pillow。宿主为每个用户/账号分配持久目录和实际可用的视觉模型。
+2. 准备 Python >= 3.10；图片处理按 `requirements.txt` 安装 Pillow>=9.1，运行 `environment-check` 自检。宿主为每个用户/账号分配持久目录和实际可用的视觉模型。
 3. 按 [索引流水线](references/index-runner.md) 扫描、取图、生成标签；已有索引可直接查询。
 
 ```bash
