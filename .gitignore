@@ -5,3 +5,4 @@
 /.cloud-photo/
 __pycache__/
 *.pyc
+/docs/

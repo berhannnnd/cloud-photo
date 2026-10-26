@@ -2,7 +2,7 @@
 
 <h1>Cloud Photo</h1>
 <p><strong>先理解照片，再按你的想法整理。</strong></p>
-<p>本地内容索引 · 多轮筛选 · 分类相簿<br>面向 OpenClaw / Mclaw，通过中国移动云盘 Skill 访问照片。</p>
+<p>本地内容索引 · 多轮筛选 · 分类相簿<br>面向 Agent 平台，通过中国移动云盘 Skill 访问照片。</p>
 <p><a href="SKILL.md">Skill 指南</a> · <a href="references/architecture.md">完整架构</a> · <a href="references/index-runner.md">建立索引</a> · <a href="references/organizing.md">执行整理</a></p>
 </div>
 
@@ -31,7 +31,7 @@ flowchart LR
     P -->|公开 CLI / 确认执行| A
 ```
 
-**cloud-photo 管理照片任务，cm-cloud-manage 管理云盘业务。** 两个 Skill 由宿主加载；本项目不直连 OpenClaw 后端，不依赖 Nexus 前端。图片发送和任务卡使用宿主现有能力。
+**cloud-photo 管理照片任务，cm-cloud-manage 管理云盘业务。** 两个 Skill 由宿主加载；本项目不直连宿主后端，不依赖特定前端。图片发送和任务卡使用宿主现有能力。
 
 ## 已实现与依赖
 
@@ -90,4 +90,4 @@ cloud-photo/
 | [标签规范](references/photo-index.md) | 模型输出、事实来源和人物限制 |
 | [分组与执行](references/organizing.md) | 相簿、故事、目录、确认和恢复 |
 | [云盘公开接口](references/cm-cloud-api.md) | 上游 2.0.2 命令与限制 |
-| [宿主接入](references/mclaw-integration.md) | 用户隔离、媒体和运行环境 |
+| [宿主接入](references/host-integration.md) | 用户隔离、媒体和运行环境 |

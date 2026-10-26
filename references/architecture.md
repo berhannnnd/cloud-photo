@@ -18,7 +18,7 @@ flowchart TD
     C --> L[操作回执 / 状态恢复]
 ```
 
-这是两个 Skill 协同：cloud-photo 拥有本地照片流程；cm-cloud-manage 拥有云盘身份、资源引用和业务执行。OpenClaw 提供脚本执行、模型、用户持久存储和媒体通道。无需直连其后端，也不依赖 Nexus 页面。
+这是两个 Skill 协同：cloud-photo 拥有本地照片流程；cm-cloud-manage 拥有云盘身份、资源引用和业务执行。宿主 Agent 平台提供脚本执行、模型、用户持久存储和媒体通道。无需直连其后端，也不依赖特定前端页面。
 
 ## 功能落点
 
@@ -109,7 +109,7 @@ scripts/
 
 cli 只负责参数、调用与输出。results 依赖 query/storage；grouping 与 similarity 处理固定结果；plans 编译分组与公开操作；execution 管理提交和回执；只有 adapters 知道云盘 CLI 的参数与信封。media 只从真实文件提取证据，indexing 合并标签。视觉服务接入应输出既有标签协议，不把模型 SDK、凭据或提示词逻辑塞入查询引擎。
 
-Skill 保持一个入口，按任务加载 references：首次接入读 dependencies/mclaw-integration，建索引读 index-runner/photo-index，检索读 index-guidance，执行读 organizing/evidence-pack。README 面向安装者；SKILL 面向执行 Agent；architecture 解释边界。运行状态和演示数据放用户工作区，不随 Skill 发布。
+Skill 保持一个入口，按任务加载 references：首次接入读 dependencies/host-integration，建索引读 index-runner/photo-index，检索读 index-guidance，执行读 organizing/evidence-pack。README 面向安装者；SKILL 面向执行 Agent；architecture 解释边界。运行状态和演示数据放用户工作区，不随 Skill 发布。
 
 ## 宿主与上游仍需提供的能力
 
